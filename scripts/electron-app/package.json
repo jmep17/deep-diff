@@ -1,0 +1,5 @@
+{
+  "name": "deep-dish-diff-electron-runner",
+  "private": true,
+  "main": "main.cjs"
+}

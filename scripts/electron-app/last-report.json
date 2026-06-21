@@ -1,0 +1,52 @@
+{
+  "ok": true,
+  "totalRoutes": 6,
+  "changedRoutes": 3,
+  "durationMs": 5211,
+  "routePaths": [
+    "/",
+    "/dashboard",
+    "/dashboard/settings/auth0",
+    "/pricing",
+    "/projects/:projectId",
+    "/reports/:reportId"
+  ],
+  "routeStatuses": [
+    {
+      "path": "/",
+      "status": "failed",
+      "mismatchRatio": 0.03932859088302752,
+      "hasImages": true
+    },
+    {
+      "path": "/dashboard",
+      "status": "passed",
+      "mismatchRatio": 0,
+      "hasImages": true
+    },
+    {
+      "path": "/dashboard/settings/auth0",
+      "status": "failed",
+      "mismatchRatio": 0.057364535550458715,
+      "hasImages": true
+    },
+    {
+      "path": "/pricing",
+      "status": "failed",
+      "mismatchRatio": 0.040983371559633025,
+      "hasImages": true
+    },
+    {
+      "path": "/projects/:projectId",
+      "status": "passed",
+      "mismatchRatio": 0,
+      "hasImages": true
+    },
+    {
+      "path": "/reports/:reportId",
+      "status": "passed",
+      "mismatchRatio": 0,
+      "hasImages": true
+    }
+  ]
+}

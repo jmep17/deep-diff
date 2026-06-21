@@ -1,0 +1,5 @@
+{
+  "name": "deep-dish-diff-scenario-runner",
+  "private": true,
+  "main": "run.cjs"
+}

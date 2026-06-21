@@ -1,0 +1,7 @@
+{
+  "description": "Mock visual diff report aligned with auth0-routes-fixture expectations.",
+  "changedRoutes": 3,
+  "totalRoutes": 6,
+  "changedPaths": ["/", "/pricing", "/dashboard/settings/auth0"],
+  "unchangedPaths": ["/dashboard", "/projects/:projectId", "/reports/:reportId"]
+}
