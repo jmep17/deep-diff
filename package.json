@@ -1,0 +1,80 @@
+{
+  "name": "deep-dish-diff",
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.28.2",
+  "description": "A local desktop visual regression tester with branch comparison, endpoint discovery, and configurable mock profiles.",
+  "type": "module",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k \"pnpm run dev:renderer\" \"pnpm run dev:electron\"",
+    "dev:renderer": "vite --host 127.0.0.1 --port 5180 --strictPort",
+    "dev:renderer:e2e": "vite --host 127.0.0.1 --port ${DEEP_DISH_E2E_PORT:-5174} --strictPort",
+    "dev:electron": "wait-on tcp:5180 && pnpm run build:electron && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5180 electron .",
+    "build": "tsc -p tsconfig.json && vite build && pnpm run build:electron",
+    "build:electron": "tsc -p tsconfig.electron.json && esbuild electron/preload.ts --bundle --format=cjs --platform=node --external:electron --outfile=dist-electron/preload.cjs && rm -f dist-electron/preload.js",
+    "preview": "vite preview --host 127.0.0.1",
+    "start": "electron .",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.electron.json",
+    "cy:open": "cypress open --browser ${CYPRESS_BROWSER:-electron} --e2e",
+    "cy:run": "cypress run --browser ${CYPRESS_BROWSER:-electron}",
+    "cy:run:headed": "cypress run --browser ${CYPRESS_BROWSER:-electron} --headed",
+    "cy:install": "cypress install",
+    "test:e2e": "bash scripts/test-e2e.sh",
+    "test:e2e:open": "bash scripts/test-e2e-open.sh",
+    "test:ipc": "node scripts/test-ipc-validation.mjs",
+    "with-node": "bash scripts/with-node.sh",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --fix --no-warn-ignored",
+      "prettier --write"
+    ],
+    "*.{js,cjs,mjs,json,css,md,html,yml,yaml}": [
+      "prettier --write"
+    ]
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "cypress",
+      "electron",
+      "esbuild"
+    ]
+  },
+  "dependencies": {
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^21.0.2",
+    "@commitlint/config-conventional": "^21.0.2",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.0",
+    "cross-env": "^7.0.3",
+    "cypress": "^15.17.0",
+    "electron": "^31.7.7",
+    "esbuild": "^0.25.12",
+    "eslint": "^10.5.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.3",
+    "globals": "^17.6.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.8",
+    "prettier": "^3.8.4",
+    "start-server-and-test": "^3.0.11",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.61.1",
+    "vite": "^6.0.3",
+    "wait-on": "^8.0.1"
+  }
+}

@@ -1,0 +1,23 @@
+node_modules/
+dist/
+dist-electron/
+.DS_Store
+npm-debug.log*
+pnpm-debug.log*
+cypress/videos/
+cypress/screenshots/
+.cache/
+.claude.local.md
+
+# Package manager store
+.pnpm-store/
+
+# Local agent tooling (machine-specific, not shared)
+.agents/
+.aider-desk/
+.codex/
+.serena/
+.claude/
+
+# Nested git fixture — restore from the committed bundle via scripts/restore-fixtures.sh
+mock-repositories/auth0-routes-fixture/

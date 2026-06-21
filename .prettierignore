@@ -1,0 +1,9 @@
+dist
+dist-electron
+node_modules
+mock-repositories
+mock-workspace
+pnpm-lock.yaml
+cypress/videos
+cypress/screenshots
+.pnpm-store
