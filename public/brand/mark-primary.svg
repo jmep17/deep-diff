@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="ddd-mark-primary-title ddd-mark-primary-desc">
+  <title id="ddd-mark-primary-title">Deep Dish Diff logo mark</title>
+  <desc id="ddd-mark-primary-desc">A deep dish pizza split into removed and added diff halves with pepperoni, peppers, and a parmesan compare seam.</desc>
+  <defs>
+    <clipPath id="ddd-primary-pizza-face">
+      <circle cx="32" cy="32" r="17"/>
+    </clipPath>
+    <radialGradient id="ddd-primary-cheese" cx="36%" cy="32%" r="70%">
+      <stop offset="0%" stop-color="#FFFCF0"/>
+      <stop offset="48%" stop-color="#FFEAA0"/>
+      <stop offset="100%" stop-color="#E8B84A"/>
+    </radialGradient>
+    <radialGradient id="ddd-primary-pepperoni" cx="34%" cy="30%" r="75%">
+      <stop offset="0%" stop-color="#F04E53"/>
+      <stop offset="55%" stop-color="#C52B2D"/>
+      <stop offset="100%" stop-color="#8E1719"/>
+    </radialGradient>
+    <linearGradient id="ddd-primary-crust" x1="32" y1="8" x2="32" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#9A5E34"/>
+      <stop offset="55%" stop-color="#6B3F1F"/>
+      <stop offset="100%" stop-color="#452610"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="#111417"/>
+  <circle cx="32" cy="32" r="24.2" fill="url(#ddd-primary-crust)"/>
+  <circle cx="32" cy="32" r="18.4" fill="url(#ddd-primary-cheese)"/>
+  <g clip-path="url(#ddd-primary-pizza-face)">
+    <path d="M32 15C22.8 15 15.6 22.2 15.6 31.4C15.6 40.6 22.8 47.8 32 47.8Z" fill="#C52B2D" opacity="0.58"/>
+    <path d="M32 15C41.2 15 48.4 22.2 48.4 31.4C48.4 40.6 41.2 47.8 32 47.8Z" fill="#2D8B4D" opacity="0.65"/>
+    <ellipse cx="24.2" cy="22.8" rx="3.8" ry="2.2" fill="#FFF8E7" opacity="0.5" transform="rotate(-16 24.2 22.8)"/>
+    <ellipse cx="21.2" cy="35.2" rx="3.2" ry="1.8" fill="#FFF8E7" opacity="0.44" transform="rotate(10 21.2 35.2)"/>
+    <circle cx="22.6" cy="28.4" r="3.2" fill="url(#ddd-primary-pepperoni)"/>
+    <circle cx="22.6" cy="28.4" r="3.2" fill="none" stroke="#761418" stroke-width="0.55" opacity="0.5"/>
+    <circle cx="21.8" cy="27.6" r="0.9" fill="#FFFDF9" opacity="0.36"/>
+    <circle cx="25" cy="38.8" r="2.9" fill="url(#ddd-primary-pepperoni)"/>
+    <circle cx="25" cy="38.8" r="2.9" fill="none" stroke="#761418" stroke-width="0.5" opacity="0.45"/>
+    <circle cx="24.3" cy="38.1" r="0.75" fill="#FFFDF9" opacity="0.3"/>
+    <circle cx="20.2" cy="42.8" r="2.5" fill="url(#ddd-primary-pepperoni)"/>
+    <circle cx="20.2" cy="42.8" r="2.5" fill="none" stroke="#761418" stroke-width="0.45" opacity="0.4"/>
+    <ellipse cx="45.2" cy="24.6" rx="1.7" ry="3.4" fill="#2D8B4D" opacity="0.82" transform="rotate(32 45.2 24.6)"/>
+    <ellipse cx="44.6" cy="24.6" rx="0.95" ry="2.05" fill="#63B57A" opacity="0.62" transform="rotate(32 44.6 24.6)"/>
+    <ellipse cx="46.4" cy="31.8" rx="1.6" ry="3.2" fill="#2D8B4D" opacity="0.78" transform="rotate(-26 46.4 31.8)"/>
+    <ellipse cx="45.8" cy="31.8" rx="0.9" ry="1.95" fill="#63B57A" opacity="0.58" transform="rotate(-26 45.8 31.8)"/>
+    <ellipse cx="44.8" cy="40.2" rx="1.5" ry="3" fill="#2D8B4D" opacity="0.74" transform="rotate(16 44.8 40.2)"/>
+    <ellipse cx="44" cy="45.4" rx="1.4" ry="2.8" fill="#2D8B4D" opacity="0.68" transform="rotate(-32 44 45.4)"/>
+    <path d="M37 18.4C38.1 19.3 38.5 20.7 38 21.9C37.4 23.2 36 23.9 34.6 23.5C33.4 23.1 32.7 22 32.9 20.7C33.1 19.4 34.2 18.5 35.5 18.4C35.9 18.4 36.4 18.4 37 18.4Z" fill="#3E8F49" opacity="0.72"/>
+    <circle cx="40.2" cy="21.4" r="1.3" fill="#FFFDF9" opacity="0.4"/>
+    <g fill="none" stroke="#FFFDF9" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20.4 25.2H26.8" stroke-width="2.6"/>
+      <path d="M20.4 37.4H26.8" stroke-width="2.6"/>
+      <path d="M39 25.2H45.4M42.2 22.2V28.2" stroke-width="2.4"/>
+      <path d="M38.9 38.2H45.5M42.2 35.1V41.3" stroke-width="2.4"/>
+    </g>
+  </g>
+  <circle cx="32" cy="13" r="1.2" fill="#E8B04A" opacity="0.68"/>
+  <circle cx="45.2" cy="15.8" r="1" fill="#E8B04A" opacity="0.54"/>
+  <circle cx="18.8" cy="15.8" r="0.9" fill="#E8B04A" opacity="0.5"/>
+  <path d="M32 14.5L35.4 22.8L31.2 31.4L35.5 40.6L32 49.1" fill="none" stroke="#5C3818" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.22"/>
+  <path d="M32 14.7L35.7 23.2L31.3 31.6L35.6 40.8L32 49.3" fill="none" stroke="#F0BE3F" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M31.4 15L34.6 23.1L30.6 31.5L34.8 40.4L31.4 48.8" fill="none" stroke="#FFF5D6" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round" opacity="0.58"/>
+</svg>

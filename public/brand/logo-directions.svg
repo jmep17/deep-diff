@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="360" viewBox="0 0 960 360" role="img" aria-labelledby="ddd-logo-directions-title ddd-logo-directions-desc">
+  <title id="ddd-logo-directions-title">Deep Dish Diff logo directions</title>
+  <desc id="ddd-logo-directions-desc">Three vector logo concept directions for Deep Dish Diff.</desc>
+  <defs>
+    <clipPath id="ddd-directions-pizza-face">
+      <circle cx="32" cy="32" r="17"/>
+    </clipPath>
+    <radialGradient id="ddd-directions-cheese" cx="36%" cy="32%" r="70%">
+      <stop offset="0%" stop-color="#FFFCF0"/>
+      <stop offset="48%" stop-color="#FFEAA0"/>
+      <stop offset="100%" stop-color="#E8B84A"/>
+    </radialGradient>
+    <radialGradient id="ddd-directions-pepperoni" cx="34%" cy="30%" r="75%">
+      <stop offset="0%" stop-color="#F04E53"/>
+      <stop offset="55%" stop-color="#C52B2D"/>
+      <stop offset="100%" stop-color="#8E1719"/>
+    </radialGradient>
+    <linearGradient id="ddd-directions-crust" x1="32" y1="0" x2="32" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#9A5E34"/>
+      <stop offset="55%" stop-color="#6B3F1F"/>
+      <stop offset="100%" stop-color="#452610"/>
+    </linearGradient>
+  </defs>
+  <rect width="960" height="360" fill="#FBF4E8"/>
+  <g transform="translate(40 36)">
+    <rect width="260" height="264" rx="12" fill="#FFFDF9" stroke="#E3D5BD"/>
+    <g transform="translate(98 34)">
+      <rect x="0" y="0" width="64" height="64" rx="14" fill="#111417"/>
+      <circle cx="32" cy="32" r="24.2" fill="url(#ddd-directions-crust)"/>
+      <circle cx="32" cy="32" r="18.4" fill="url(#ddd-directions-cheese)"/>
+      <g clip-path="url(#ddd-directions-pizza-face)">
+        <path d="M32 15C22.8 15 15.6 22.2 15.6 31.4C15.6 40.6 22.8 47.8 32 47.8Z" fill="#C52B2D" opacity="0.58"/>
+        <path d="M32 15C41.2 15 48.4 22.2 48.4 31.4C48.4 40.6 41.2 47.8 32 47.8Z" fill="#2D8B4D" opacity="0.65"/>
+        <circle cx="22.6" cy="28.4" r="3.2" fill="url(#ddd-directions-pepperoni)"/>
+        <circle cx="25" cy="38.8" r="2.9" fill="url(#ddd-directions-pepperoni)"/>
+        <ellipse cx="45.2" cy="24.6" rx="1.7" ry="3.4" fill="#2D8B4D" opacity="0.82" transform="rotate(32 45.2 24.6)"/>
+        <ellipse cx="46.4" cy="31.8" rx="1.6" ry="3.2" fill="#2D8B4D" opacity="0.78" transform="rotate(-26 46.4 31.8)"/>
+        <g fill="none" stroke="#FFFDF9" stroke-linecap="round">
+          <path d="M20.4 25.2H26.8" stroke-width="2.6"/>
+          <path d="M20.4 37.4H26.8" stroke-width="2.6"/>
+          <path d="M39 25.2H45.4M42.2 22.2V28.2" stroke-width="2.4"/>
+          <path d="M38.9 38.2H45.5M42.2 35.1V41.3" stroke-width="2.4"/>
+        </g>
+      </g>
+      <path d="M32 14.7L35.7 23.2L31.3 31.6L35.6 40.8L32 49.3" fill="none" stroke="#F0BE3F" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <text x="130" y="136" text-anchor="middle" fill="#221D18" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="18" font-weight="850">Pan Delta</text>
+    <text x="130" y="164" text-anchor="middle" fill="#786F64" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="13">Removed/added halves with</text>
+    <text x="130" y="184" text-anchor="middle" fill="#786F64" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="13">subtle toppings clipped to pizza.</text>
+  </g>
+  <g transform="translate(350 36)">
+    <rect width="260" height="264" rx="12" fill="#FFFDF9" stroke="#E3D5BD"/>
+    <g transform="translate(98 34)">
+      <rect x="2" y="2" width="60" height="60" rx="14" fill="#111417"/>
+      <path d="M16 16H48V48H16Z" fill="#F6E9D4"/>
+      <path d="M16 16H32V48H16Z" fill="#C52B2D"/>
+      <path d="M32 16H48V48H32Z" fill="#2D8B4D"/>
+      <rect x="20" y="22" width="8" height="8" rx="2" fill="#FFF4CD"/>
+      <rect x="36" y="22" width="8" height="8" rx="2" fill="#FFF4CD"/>
+      <rect x="20" y="36" width="8" height="8" rx="2" fill="#FFF4CD"/>
+      <rect x="36" y="36" width="8" height="8" rx="2" fill="#FFF4CD"/>
+      <path d="M32 14V50" stroke="#F0BE3F" stroke-width="5" stroke-linecap="round"/>
+    </g>
+    <text x="130" y="136" text-anchor="middle" fill="#221D18" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="18" font-weight="850">Pixel Tray</text>
+    <text x="130" y="164" text-anchor="middle" fill="#786F64" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="13">A more literal visual-testing grid</text>
+    <text x="130" y="184" text-anchor="middle" fill="#786F64" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="13">with comparison cells.</text>
+  </g>
+  <g transform="translate(660 36)">
+    <rect width="260" height="264" rx="12" fill="#FFFDF9" stroke="#E3D5BD"/>
+    <g transform="translate(98 34)">
+      <rect x="2" y="2" width="60" height="60" rx="14" fill="#111417"/>
+      <path d="M32 10L54 22V43L32 55L10 43V22Z" fill="#D89834"/>
+      <path d="M32 15L49 24.5V40.5L32 50L15 40.5V24.5Z" fill="#F8E7BD"/>
+      <path d="M15 24.5L32 15V50L15 40.5Z" fill="#C52B2D"/>
+      <path d="M49 24.5L32 15V50L49 40.5Z" fill="#2D8B4D"/>
+      <path d="M32 15V50" stroke="#111417" stroke-width="3.5" stroke-linecap="round"/>
+      <circle cx="23" cy="28" r="3" fill="#FFF4CD"/>
+      <circle cx="41" cy="39" r="3" fill="#FFF4CD"/>
+    </g>
+    <text x="130" y="136" text-anchor="middle" fill="#221D18" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="18" font-weight="850">Branch Slice</text>
+    <text x="130" y="164" text-anchor="middle" fill="#786F64" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="13">A branch/merge metaphor with a</text>
+    <text x="130" y="184" text-anchor="middle" fill="#786F64" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="13">deep dish slice silhouette.</text>
+  </g>
+</svg>

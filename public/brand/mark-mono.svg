@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="ddd-mark-mono-title ddd-mark-mono-desc">
+  <title id="ddd-mark-mono-title">Deep Dish Diff monochrome mark</title>
+  <desc id="ddd-mark-mono-desc">A monochrome deep dish pizza mark with diff halves and a compare seam.</desc>
+  <defs>
+    <clipPath id="ddd-mono-pizza-face">
+      <circle cx="32" cy="32" r="18"/>
+    </clipPath>
+  </defs>
+  <rect x="5" y="5" width="54" height="54" rx="13" fill="none" stroke="#111417" stroke-width="3.5"/>
+  <circle cx="32" cy="32" r="23.5" fill="#221D18"/>
+  <circle cx="32" cy="32" r="18" fill="#E8DFC8"/>
+  <g clip-path="url(#ddd-mono-pizza-face)">
+    <path d="M32 14C22.8 14 15.6 21.2 15.6 30.4C15.6 39.6 22.8 46.8 32 46.8Z" fill="#B0A898"/>
+    <g fill="none" stroke="#221D18" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5">
+      <path d="M20.4 25.2H26.8"/>
+      <path d="M20.4 37.4H26.8"/>
+      <path d="M39 25.2H45.4M42.2 22.2V28.2"/>
+      <path d="M38.9 38.2H45.5M42.2 35.1V41.3"/>
+    </g>
+  </g>
+  <path d="M32 14.7L35.7 23.2L31.3 31.6L35.6 40.8L32 49.3" fill="none" stroke="#221D18" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

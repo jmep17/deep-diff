@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="80" viewBox="0 0 320 80" role="img" aria-labelledby="ddd-logo-horizontal-title ddd-logo-horizontal-desc">
+  <title id="ddd-logo-horizontal-title">Deep Dish Diff logo</title>
+  <desc id="ddd-logo-horizontal-desc">The Deep Dish Diff mark paired with a horizontal wordmark.</desc>
+  <defs>
+    <clipPath id="ddd-horizontal-pizza-face">
+      <circle cx="40" cy="40" r="17"/>
+    </clipPath>
+    <radialGradient id="ddd-horizontal-cheese" cx="36%" cy="32%" r="70%">
+      <stop offset="0%" stop-color="#FFFCF0"/>
+      <stop offset="48%" stop-color="#FFEAA0"/>
+      <stop offset="100%" stop-color="#E8B84A"/>
+    </radialGradient>
+    <radialGradient id="ddd-horizontal-pepperoni" cx="34%" cy="30%" r="75%">
+      <stop offset="0%" stop-color="#F04E53"/>
+      <stop offset="55%" stop-color="#C52B2D"/>
+      <stop offset="100%" stop-color="#8E1719"/>
+    </radialGradient>
+    <linearGradient id="ddd-horizontal-crust" x1="40" y1="16" x2="40" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#9A5E34"/>
+      <stop offset="55%" stop-color="#6B3F1F"/>
+      <stop offset="100%" stop-color="#452610"/>
+    </linearGradient>
+  </defs>
+  <g aria-hidden="true">
+    <rect x="8" y="8" width="64" height="64" rx="16" fill="#111417"/>
+    <circle cx="40" cy="40" r="24.2" fill="url(#ddd-horizontal-crust)"/>
+    <circle cx="40" cy="40" r="18.4" fill="url(#ddd-horizontal-cheese)"/>
+    <g clip-path="url(#ddd-horizontal-pizza-face)">
+      <path d="M40 23C30.8 23 23.6 30.2 23.6 39.4C23.6 48.6 30.8 55.8 40 55.8Z" fill="#C52B2D" opacity="0.58"/>
+      <path d="M40 23C49.2 23 56.4 30.2 56.4 39.4C56.4 48.6 49.2 55.8 40 55.8Z" fill="#2D8B4D" opacity="0.65"/>
+      <ellipse cx="32.2" cy="30.8" rx="3.8" ry="2.2" fill="#FFF8E7" opacity="0.5" transform="rotate(-16 32.2 30.8)"/>
+      <ellipse cx="29.2" cy="43.2" rx="3.2" ry="1.8" fill="#FFF8E7" opacity="0.44" transform="rotate(10 29.2 43.2)"/>
+      <circle cx="30.6" cy="36.4" r="3.2" fill="url(#ddd-horizontal-pepperoni)"/>
+      <circle cx="30.6" cy="36.4" r="3.2" fill="none" stroke="#761418" stroke-width="0.55" opacity="0.5"/>
+      <circle cx="29.8" cy="35.6" r="0.9" fill="#FFFDF9" opacity="0.36"/>
+      <circle cx="33" cy="46.8" r="2.9" fill="url(#ddd-horizontal-pepperoni)"/>
+      <circle cx="33" cy="46.8" r="2.9" fill="none" stroke="#761418" stroke-width="0.5" opacity="0.45"/>
+      <circle cx="28.2" cy="50.8" r="2.5" fill="url(#ddd-horizontal-pepperoni)"/>
+      <ellipse cx="53.2" cy="32.6" rx="1.7" ry="3.4" fill="#2D8B4D" opacity="0.82" transform="rotate(32 53.2 32.6)"/>
+      <ellipse cx="52.6" cy="32.6" rx="0.95" ry="2.05" fill="#63B57A" opacity="0.62" transform="rotate(32 52.6 32.6)"/>
+      <ellipse cx="54.4" cy="39.8" rx="1.6" ry="3.2" fill="#2D8B4D" opacity="0.78" transform="rotate(-26 54.4 39.8)"/>
+      <ellipse cx="52.8" cy="48.2" rx="1.5" ry="3" fill="#2D8B4D" opacity="0.74" transform="rotate(16 52.8 48.2)"/>
+      <ellipse cx="52" cy="53.4" rx="1.4" ry="2.8" fill="#2D8B4D" opacity="0.68" transform="rotate(-32 52 53.4)"/>
+      <path d="M45 26.4C46.1 27.3 46.5 28.7 46 29.9C45.4 31.2 44 31.9 42.6 31.5C41.4 31.1 40.7 30 40.9 28.7C41.1 27.4 42.2 26.5 43.5 26.4C43.9 26.4 44.4 26.4 45 26.4Z" fill="#3E8F49" opacity="0.72"/>
+      <g fill="none" stroke="#FFFDF9" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M28.4 33.2H34.8" stroke-width="2.6"/>
+        <path d="M28.4 45.4H34.8" stroke-width="2.6"/>
+        <path d="M47 33.2H53.4M50.2 30.2V36.2" stroke-width="2.4"/>
+        <path d="M46.9 46.2H53.5M50.2 43.1V49.3" stroke-width="2.4"/>
+      </g>
+    </g>
+    <circle cx="40" cy="21" r="1.2" fill="#E8B04A" opacity="0.68"/>
+    <circle cx="53.2" cy="23.8" r="1" fill="#E8B04A" opacity="0.54"/>
+    <circle cx="26.8" cy="23.8" r="0.9" fill="#E8B04A" opacity="0.5"/>
+    <path d="M40 22.5L43.4 30.8L39.2 39.4L43.5 48.6L40 57.1" fill="none" stroke="#5C3818" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.22"/>
+    <path d="M40 22.7L43.7 31.2L39.3 39.6L43.6 48.8L40 57.3" fill="none" stroke="#F0BE3F" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M39.4 23L42.6 31.1L38.6 39.5L42.8 48.4L39.4 56.8" fill="none" stroke="#FFF5D6" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round" opacity="0.58"/>
+  </g>
+  <text x="88" y="38" fill="#221D18" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="26" font-weight="850" letter-spacing="-0.4">Deep Dish</text>
+  <text x="88" y="61" fill="#A91F1F" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="24" font-weight="850" letter-spacing="-0.2">Diff</text>
+</svg>

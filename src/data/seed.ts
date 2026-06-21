@@ -1,0 +1,154 @@
+import type { EndpointDefinition, MockProfile, RepositorySummary } from '../lib/types';
+
+export const seedRepositories: RepositorySummary[] = [
+  {
+    id: 'demo-local',
+    name: 'acme-pizza-web',
+    fullName: 'Acme Pizza Co. / acme-pizza-web',
+    source: 'local',
+    path: '/Users/shared/acme-pizza-web',
+    defaultBranch: 'main',
+    description: 'Checkout and ordering frontend',
+  },
+  {
+    id: 'demo-github',
+    name: 'slice-service',
+    fullName: 'acme-pizza/slice-service',
+    source: 'github',
+    owner: 'acme-pizza',
+    defaultBranch: 'main',
+    description: 'Menu, cart, and payment API',
+    private: true,
+    url: 'https://github.com/acme-pizza/slice-service',
+  },
+];
+
+export const seedBranches = [
+  'main',
+  'feature/order-flow',
+  'feature/mockable-menu',
+  'release/checkout-hardening',
+];
+
+export const seedEndpoints: EndpointDefinition[] = [
+  {
+    id: 'GET:/api/menu',
+    method: 'GET',
+    path: '/api/menu',
+    filePath: 'app/api/menu/route.ts',
+    framework: 'Next.js App Router',
+    status: 200,
+    confidence: 'high',
+    fields: [
+      { name: 'id', type: 'string', example: 'pizza_001' },
+      { name: 'name', type: 'string', example: 'Margherita Pizza' },
+      { name: 'price', type: 'number', example: '16' },
+      { name: 'available', type: 'boolean', example: 'true' },
+    ],
+    mock: { id: 'pizza_001', name: 'Margherita Pizza', price: 16, available: true },
+  },
+  {
+    id: 'GET:/api/menu/:id',
+    method: 'GET',
+    path: '/api/menu/:id',
+    filePath: 'app/api/menu/[id]/route.ts',
+    framework: 'Next.js App Router',
+    status: 200,
+    confidence: 'high',
+    fields: [
+      { name: 'id', type: 'string', example: 'pizza_001' },
+      { name: 'name', type: 'string', example: 'Pepperoni' },
+      { name: 'ingredients', type: 'array', example: '[]' },
+    ],
+    mock: { id: 'pizza_001', name: 'Pepperoni', ingredients: ['mozzarella', 'pepperoni'] },
+  },
+  {
+    id: 'GET:/api/cart',
+    method: 'GET',
+    path: '/api/cart',
+    filePath: 'src/server/cart.ts',
+    framework: 'Express/Fastify',
+    status: 200,
+    confidence: 'medium',
+    fields: [
+      { name: 'subtotal', type: 'number', example: '21' },
+      { name: 'tax', type: 'number', example: '2.1' },
+      { name: 'total', type: 'number', example: '27.09' },
+    ],
+    mock: { subtotal: 21, tax: 2.1, total: 27.09 },
+  },
+  {
+    id: 'POST:/api/cart/items',
+    method: 'POST',
+    path: '/api/cart/items',
+    filePath: 'src/server/cart.ts',
+    framework: 'Express/Fastify',
+    status: 201,
+    confidence: 'medium',
+    fields: [
+      { name: 'itemId', type: 'string', example: 'item_001' },
+      { name: 'quantity', type: 'number', example: '1' },
+      { name: 'status', type: 'string', example: 'added' },
+    ],
+    mock: { itemId: 'item_001', quantity: 1, status: 'added' },
+  },
+  {
+    id: 'PATCH:/api/cart/items/:id',
+    method: 'PATCH',
+    path: '/api/cart/items/:id',
+    filePath: 'src/server/cart.ts',
+    framework: 'Express/Fastify',
+    status: 200,
+    confidence: 'medium',
+    fields: [
+      { name: 'itemId', type: 'string', example: 'item_001' },
+      { name: 'quantity', type: 'number', example: '2' },
+      { name: 'updated', type: 'boolean', example: 'true' },
+    ],
+    mock: { itemId: 'item_001', quantity: 2, updated: true },
+  },
+  {
+    id: 'POST:/api/payments/intent',
+    method: 'POST',
+    path: '/api/payments/intent',
+    filePath: 'app/api/payments/intent/route.ts',
+    framework: 'Next.js App Router',
+    status: 201,
+    confidence: 'high',
+    fields: [
+      { name: 'clientSecret', type: 'string', example: 'pi_mock_secret' },
+      { name: 'amount', type: 'number', example: '2709' },
+      { name: 'currency', type: 'string', example: 'usd' },
+    ],
+    mock: { clientSecret: 'pi_mock_secret', amount: 2709, currency: 'usd' },
+  },
+];
+
+export const seedProfiles: MockProfile[] = [
+  {
+    id: 'margherita-stable',
+    name: 'Margherita Stable',
+    description: 'Default valid data for repeatable snapshots',
+    color: 'green',
+    enabled: true,
+    endpointOverrides: {},
+  },
+  {
+    id: 'pepperoni-edge',
+    name: 'Pepperoni Edge Cases',
+    description: 'Long labels, empty carts, and payment failures',
+    color: 'red',
+    enabled: false,
+    endpointOverrides: {
+      'GET:/api/cart': { subtotal: 0, tax: 0, total: 0 },
+    },
+  },
+  {
+    id: 'parmesan-locale',
+    name: 'Parmesan Locale',
+    description: 'Currency, timezone, and formatting variants',
+    color: 'yellow',
+    enabled: false,
+    endpointOverrides: {},
+  },
+];
