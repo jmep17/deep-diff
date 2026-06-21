@@ -1,0 +1,64 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+Deep Dish Diff (package name `deep-dish-diff`) is an Electron + React desktop app for local visual regression testing. It lets a user pick a git repository, spin up a "sidecar" dev server for a given branch/worktree, scan the repo for API endpoints and frontend routes, configure mock profiles for those endpoints, and run a pixel-diff comparison between two refs (branches or the working tree) for the detected routes.
+
+Node version is pinned via `.node-version` (managed by `fnm`); `scripts/ensure-node.sh` puts the right Node on `PATH` and is sourced by the other shell scripts in `scripts/`.
+
+## Commands
+
+Package manager is pnpm (`pnpm@10.28.2`, see `packageManager` field — use pnpm, not npm/yarn).
+
+- `pnpm run dev` — runs the Vite renderer and Electron concurrently for local development (`dev:renderer` on port 5180 + `dev:electron`, which waits for the renderer then builds and launches Electron pointed at the dev server).
+- To verify the running app's renderer/bridge over CDP: `pnpm run dev:renderer` (port 5180), then `env VITE_DEV_SERVER_URL=http://127.0.0.1:5180 pnpm exec electron . --remote-debugging-port=9222`, then `agent-browser connect 9222` + `agent-browser eval "Object.keys(window.deepDiff)"` / `screenshot`. agent-browser captures web contents only — **not** native macOS file dialogs.
+- `pnpm run build` — typechecks both the renderer and Electron main process, builds the renderer with Vite, then compiles Electron's TypeScript and bundles the preload to CommonJS (`build:electron`) to `dist-electron/`.
+- `pnpm run typecheck` — runs `tsc -p tsconfig.json` (renderer, noEmit) and `tsc -p tsconfig.electron.json` (Electron main process) without building.
+- `pnpm run start` — launches Electron against the already-built `dist/`/`dist-electron/` output (no dev server).
+- `pnpm run test:e2e` — runs the full Cypress e2e suite headless (`scripts/test-e2e.sh`): starts a dedicated Vite dev server on port 5174 (override with `DEEP_DISH_E2E_PORT`) and runs Cypress against it via `start-server-and-test`. Browser defaults to `electron`; override with `CYPRESS_BROWSER`.
+- `pnpm run test:e2e:open` — same setup but opens the interactive Cypress runner (`scripts/test-e2e-open.sh`).
+- To run a single Cypress spec headless: `DEEP_DISH_E2E_PORT=5174 pnpm exec cypress run --browser electron --spec cypress/e2e/<file>.cy.ts` (or just use `cy:open` and pick the spec in the UI).
+- `node scripts/validate-endpoint-mocks.mjs` — standalone script asserting the endpoint scanner's output shape/coverage against the `mock-repositories/auth0-routes-fixture` fixture. Requires `dist-electron/` to be built first (`pnpm run build:electron`).
+- `node scripts/test-mock-repository.mjs` — broader integration test of local-mode scanning, sidecar launch/worktree creation, GitHub remote-mode lookups (skipped without a `GITHUB_TOKEN` or `gh auth token`), and an end-to-end visual diff run via `scripts/electron-app` against the same fixture. Also requires `dist-electron/` to be built first.
+- `node scripts/test-ipc-validation.mjs` (or `pnpm run test:ipc`) — asserts the IPC input validators in `electron/ipcValidation.ts` (path containment, command allowlist, ref/shape checks). Requires `dist-electron/` built first (`pnpm run build:electron`).
+- `node scripts/test-auth-config-detector.mjs` — asserts `electron/authConfigDetector.ts` detection logic across env files, config files, and package.json deps. Requires `dist-electron/` built first (`pnpm run build:electron`).
+- `bash scripts/with-node.sh <command>` — runs an arbitrary command with the pinned Node version on `PATH` (useful in shells without `fnm` auto-loading).
+
+There is no unit test runner configured (no Jest/Vitest) — correctness is validated via Cypress e2e specs (`cypress/e2e/`) and the Node integration scripts above, which exercise the real `electron/` modules against the `mock-repositories/auth0-routes-fixture` fixture repo.
+
+## Architecture
+
+### Process split: `electron/` vs `src/`
+
+This is a standard Electron app with two separate TypeScript builds (see the two tsconfigs):
+
+- `electron/` (main process, Node context, compiled by `tsconfig.electron.json` → `dist-electron/`) does all filesystem/git/process work: scanning workspaces for git repos, listing branches, talking to the GitHub REST API, detecting frontend routes and API endpoints by walking source files with regex/heuristics (no AST parsing), spawning sidecar dev servers (optionally in a throwaway `git worktree` for non-current branches), and running the visual diff (spawns two dev servers, loads each route in a hidden `BrowserWindow`, captures bitmaps, and diffs pixel-by-pixel with a hardcoded threshold).
+- `src/` (renderer, browser context, compiled by `tsconfig.json` via Vite) is the React UI. It is currently a single large component tree in `src/App.tsx` (~1000 lines, no further breakdown into `src/components/`) backed by `src/data/seed.ts` for placeholder/demo data and `src/lib/types.ts` for shared renderer-side types.
+- `electron/preload.ts` bridges the two via `contextBridge`, exposing a `window.deepDiff` API (typed in `src/vite-env.d.ts`) with `contextIsolation: true` / `nodeIntegration: false`. All renderer → main-process calls go through this bridge and `ipcMain.handle` registrations in `electron/main.ts`. **Preload must ship as CommonJS**: `package.json` is `"type": "module"`, so `tsc` emits `.js` as ESM, which a sandboxed Electron preload cannot load. `build:electron` therefore bundles the preload to `dist-electron/preload.cjs` (esbuild, `--format=cjs --external:electron`) and deletes the stale `preload.js`; `main.ts` loads `preload.cjs`. If the preload is ESM, Electron logs `Unable to load preload script`, `window.deepDiff` is `undefined`, and the renderer silently falls back to demo data (`App.tsx` `if (!bridge)`).
+- **Type duplication**: `electron/types.ts` and `src/lib/types.ts` independently define overlapping interfaces (`RepositorySummary`, `EndpointDefinition`, `VisualDiffReport`, etc.) because the two processes have separate compiler configs/module resolution and can't share imports across the main/renderer boundary. When changing one of these shared shapes, update both files and the `window.deepDiff` signatures in `src/vite-env.d.ts` + `electron/preload.ts` together.
+
+### Key main-process modules
+
+- `electron/repositories.ts` — discovers local git repos under a workspace folder, lists local branches, and fetches GitHub repos/branches via the REST API (token optional, passed per-request from the renderer).
+- `electron/routeDetection.ts` — heuristically maps Next.js `app/`/`pages/` files to frontend routes (handles dynamic segments like `[id]`, route groups like `(marketing)`, and produces both a display path and a sample `urlPath` with fixture values substituted for dynamic segments). Also used to figure out which routes are impacted by a set of changed files (`detectVisualRoutesForChangedFiles`), treating changes under `src/`, `middleware.*`, `.env*`, or non-page/non-API source files as having "shared impact" on all routes.
+- `electron/endpointScanner.ts` — heuristically detects API endpoints from Express/Fastify-style call patterns, Next.js App Router `route.ts` exports, Next.js Pages API files, and OpenAPI/Swagger JSON specs; infers field shapes/mock values from nearby object-literal source text (not real parsing).
+- `electron/sidecar.ts` / `electron/visualDiff.ts` — both infer how to run a target repo (reads `package.json` scripts/`packageManager`, prefers `dev` then `start`), allocate a free local port, and spawn the dev server. For any ref other than the special sentinel `__working_tree__`, they create a detached `git worktree` in the OS temp dir so the base/target comparison can run two versions of the repo simultaneously without touching the user's checkout; the worktree is removed in a `cleanup()` once the server stops. `visualDiff.ts` additionally drives a hidden `BrowserWindow` to capture each route on both servers and builds a diff image via manual pixel comparison (`diffThreshold = 18` per RGB channel sum).
+- Set `DEEP_DISH_DIFF_TRACE=1` to get a timestamped trace log at `electron/visual-diff.trace` (or `dist-electron/visual-diff.trace` once built) from `visualDiff.ts`'s `trace()` helper — useful for debugging hangs in the dev-server-start/capture/cleanup pipeline.
+- `electron/authConfigDetector.ts` — detects whether a target repo uses Auth0 by scanning `.env*` files for `AUTH0_BASE_URL`/`APP_BASE_URL`/`AUTH0_ISSUER_BASE_URL`, checking for `auth0.config.{js,ts}`, and inspecting `package.json` deps. Used by `sidecar.ts` and `visualDiff.ts` to inject corrected `AUTH0_BASE_URL`/`APP_BASE_URL` env vars at spawn time (matching the dynamically allocated port).
+- `electron/ipcValidation.ts` / `electron/logger.ts` — `main.ts` validates every renderer-supplied IPC payload before delegating (path must resolve via `fs.realpath` to a directory under a user-authorized workspace root tracked in `authorizedRoots`; `command` overrides are allowlisted to known runners; git refs reject leading `-`). All handlers are wrapped in `registerHandler` (logs + re-throws). **Keep this validation at the handler layer only** — the Cypress mock bridge and the `scripts/*.mjs` integration scripts call the core functions (`runVisualDiff`, `launchSidecar`, `scanEndpoints`) directly from `dist-electron/` and bypass it, so registry-dependent checks must not move into those core modules.
+
+### Test fixture: `mock-repositories/auth0-routes-fixture`
+
+A self-contained mock Next.js-ish app, committed as its own nested git repository (it has its own `.git/`), used as the ground truth for both Cypress specs (via tasks registered in `cypress.config.ts`) and the Node integration scripts. It intentionally mixes route styles (Next.js App Router API routes, Pages API routes, Express-style routes, OpenAPI, and frontend pages) and has two branches (`main` and `feature/auth0-preview-callbacks`) with known, documented differences. `fixture-expectations.json` in that fixture is the source of truth for expected endpoint counts/paths and expected visual-diff results (changed vs. unchanged routes) — `mock-repositories/auth0-routes-fixture/README.md` documents the expected comparison table. Don't edit this fixture casually; scanner/route-detection changes should be checked against its expectations. The fixture has both `.env.example` (template) and `.env` (active, with `AUTH0_BASE_URL=http://localhost:3000`) — the `.env` is intentional and used by `authConfigDetector.ts` tests.
+
+### Cypress setup
+
+`cypress.config.ts` registers Node-side tasks (`scanFixtureEndpoints`, `detectVisualRoutesForFiles`, `detectFixtureChangedRoutes`) that call directly into `electron/endpointScanner.ts` and `electron/routeDetection.ts` against the fixture repo — specs use these tasks to validate scanning logic without a live Electron build. `cypress/support/mock-bridge.ts` provides an in-memory fake of the entire `window.deepDiff` bridge (fixed repos/branches/endpoints/visual-diff report) for specs that only need to exercise the renderer UI.
+
+## Notion task board
+
+Project tasks for Deep Dish Diff are tracked on a Notion Kanban board, accessed via the Notion MCP server. The board (a database titled "Tasks") lives under a "Deep Diff" page in the workspace. Its schema: `Status` (Not started / Planning / Ready / In progress / Done), `Priority` (High / Medium / Low), `Agent status` (free text, for an agent to report current activity), `Agent blocked` (checkbox, for an agent to flag when it needs user input), plus `Assignee` and `Due date`. Use `/notion:tasks:plan` and `/notion:tasks:build` to plan and execute tasks pulled from this board.
+
+The `notion-query-data-sources` (SQL/view) and `notion-query-database-view` MCP tools require a paid Notion plan and return a `validation_error` on this workspace. To enumerate board tickets, use `notion-search` with the data source URL (`collection://d1693c53-799a-8208-b3be-07c471277659`) and then `notion-fetch` each page to read its `Status`/`Priority` properties.
