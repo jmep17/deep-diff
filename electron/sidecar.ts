@@ -123,6 +123,14 @@ function devCommand(packageManager: PackageManager, port: number) {
   return `${packageManager} run dev -- --host 127.0.0.1 --port ${port}`;
 }
 
+// Dev scripts that aren't named "dev" (e.g. "develop", "serve"). We can't know
+// whether the script reads the --port/--host flags or the PORT env var, so we
+// pass both: PORT covers frameworks that ignore CLI flags (Next), the flags
+// cover those that ignore PORT (Vite). Setting an unused PORT env is harmless.
+function namedDevCommand(packageManager: PackageManager, script: string, port: number) {
+  return `PORT=${port} ${packageManager} run ${script} -- --host 127.0.0.1 --port ${port}`;
+}
+
 function startCommand(packageManager: PackageManager, port: number) {
   return `PORT=${port} ${packageManager} start`;
 }
@@ -134,8 +142,10 @@ async function inferDevCommand(repoPath: string, port: number) {
   const packageManager = await inferPackageManager(repoPath, packageJson);
 
   if (scripts.dev) return devCommand(packageManager, port);
+  if (scripts.develop) return namedDevCommand(packageManager, 'develop', port);
+  if (scripts.serve) return namedDevCommand(packageManager, 'serve', port);
   if (scripts.start) return startCommand(packageManager, port);
-  throw new Error('No dev or start script was found in the selected repository.');
+  throw new Error('No dev, develop, serve, or start script was found in the selected repository.');
 }
 
 function safeName(value: string) {
