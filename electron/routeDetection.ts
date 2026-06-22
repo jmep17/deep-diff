@@ -45,7 +45,7 @@ export function normalizeRoutePath(value: string) {
   return value.startsWith('/') ? value : `/${value}`;
 }
 
-function normalizeRelativePath(repoPath: string, filePath: string) {
+export function normalizeRelativePath(repoPath: string, filePath: string) {
   const absoluteRepoPath = path.resolve(repoPath);
 
   if (path.isAbsolute(filePath)) {
