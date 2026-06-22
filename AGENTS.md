@@ -5,20 +5,17 @@ Project tasks for Deep Dish Diff are tracked on a Notion Kanban board, accessed 
 <claude-mem-context>
 # Memory Context
 
-# [Deep Diff] recent context, 2026-06-21 3:56pm GMT+1
+# [Deep Diff] recent context, 2026-06-21 7:04pm GMT+1
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (17,204t read) | 353,747t work | 95% savings
+Stats: 50 obs (16,783t read) | 300,538t work | 94% savings
 
 ### Jun 21, 2026
 
-4401 1:35p 🔵 Cypress route-detection tests trace bug to relative-path resolution in routeDetection.ts
 4403 1:37p 🔵 AGENTS.md already exists in Deep Diff repo
-4404 " 🔵 Deep Diff project structure mapped via file listing
-4405 " 🔵 Deep Diff git repo has no commits yet
 4409 1:49p ✅ Deep Diff app/electron typecheck passes; Cypress e2e rerun on port 5178
 4410 " 🔵 Deep Diff package.json scripts and dependency layout reviewed
 4415 1:56p 🔴 E2E Vite dev server script hardcoded port, ignoring override variable
@@ -65,6 +62,9 @@ Stats: 50 obs (17,204t read) | 353,747t work | 95% savings
 4470 " 🔵 Brand Logo Review Page Served via Local Python HTTP Server
 4471 " 🔵 Python HTTP Server IS Running on Port 8794 — curl False Negative
 4472 " 🔵 Node REPL Browser Bootstrap Fails — sandboxCwd Must Be Absolute File URI
+4473 " 🔵 Node REPL Entirely Broken in Deep Diff Project — sandboxCwd Error Is Systemic
+4474 3:57p 🔵 Fallback to macOS `open` Command When In-App Browser Unavailable
+4475 " 🔵 logo-review.html Brand Asset Inventory Confirmed via Server Logs
 
-Access 354k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 301k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>
