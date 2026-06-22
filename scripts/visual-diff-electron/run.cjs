@@ -48,6 +48,22 @@ app.whenReady().then(async () => {
       viewport: { width: 1280, height: 900 },
     });
 
+    // Optionally dump before/after/diff PNGs for visual inspection.
+    const imagesDir = process.env.DEEP_DISH_IMAGES_DIR;
+    if (imagesDir) {
+      const path = require('node:path');
+      fs.mkdirSync(imagesDir, { recursive: true });
+      const toBuffer = (dataUrl) => Buffer.from(String(dataUrl).split(',')[1] ?? '', 'base64');
+      const slug = (value) => value.replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '') || 'root';
+      for (const route of report.routes) {
+        if (!route.beforeImage) continue;
+        const base = `${slug(route.path)}__${route.status}`;
+        fs.writeFileSync(path.join(imagesDir, `${base}__before.png`), toBuffer(route.beforeImage));
+        fs.writeFileSync(path.join(imagesDir, `${base}__after.png`), toBuffer(route.afterImage));
+        fs.writeFileSync(path.join(imagesDir, `${base}__diff.png`), toBuffer(route.diffImage));
+      }
+    }
+
     emit({
       ok: true,
       repoPath,

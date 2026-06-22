@@ -147,6 +147,20 @@ export function buildMockBridge(options: MockBridgeOptions = {}) {
     }),
     stopSidecar: async (): Promise<SidecarStatus> => ({ running: false }),
     getSidecarStatus: async (): Promise<SidecarStatus> => ({ running: false }),
+    // Faithful no-op fake of the live-override IPC. Specs stub this on the live
+    // window.deepDiff to assert that toolbar toggles push override changes to a
+    // running sidecar without a relaunch. Returns the same URL so the keyed
+    // <webview> is reloaded in place rather than remounted.
+    setSidecarOverrides: async (
+      _overrides: Record<string, Record<string, unknown>>,
+    ): Promise<SidecarStatus> => ({
+      running: true,
+      url: 'http://127.0.0.1:3199',
+      port: 3199,
+      pid: 4242,
+      command: 'pnpm run dev',
+      startedAt: new Date().toISOString(),
+    }),
     runVisualDiff: async (_request: VisualDiffRequest) => {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
       return report;
