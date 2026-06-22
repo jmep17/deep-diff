@@ -17,6 +17,7 @@ import type {
 import { scanVisualRoutes, selectRoutes, type VisualRoute } from './routeDetection.js';
 import { matchOverride, type EndpointOverrides } from './overrideMatcher.js';
 import { detectAuth0Config } from './authConfigDetector.js';
+import { installDependencies, type PackageManager } from './installDependencies.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -35,7 +36,6 @@ function trace(message: string) {
     // Ignore trace failures.
   }
 }
-type PackageManager = 'npm' | 'pnpm' | 'yarn';
 
 interface RuntimeRepository {
   path: string;
@@ -160,20 +160,34 @@ async function prepareRuntimeRepository(repoPath: string, ref: string): Promise<
     ref,
   ]);
 
+  const cleanup = async () => {
+    await execFileAsync('git', [
+      '-C',
+      repoPath,
+      'worktree',
+      'remove',
+      '--force',
+      worktreePath,
+    ]).catch(async () => {
+      await fs.rm(worktreePath, { recursive: true, force: true });
+    });
+  };
+
+  // A fresh worktree has no node_modules; install before the dev server is spawned.
+  try {
+    const packageJson = JSON.parse(
+      await fs.readFile(path.join(worktreePath, 'package.json'), 'utf8'),
+    );
+    const packageManager: PackageManager = await inferPackageManager(worktreePath, packageJson);
+    await installDependencies(worktreePath, packageManager);
+  } catch (error) {
+    await cleanup();
+    throw error;
+  }
+
   return {
     path: worktreePath,
-    cleanup: async () => {
-      await execFileAsync('git', [
-        '-C',
-        repoPath,
-        'worktree',
-        'remove',
-        '--force',
-        worktreePath,
-      ]).catch(async () => {
-        await fs.rm(worktreePath, { recursive: true, force: true });
-      });
-    },
+    cleanup,
   };
 }
 

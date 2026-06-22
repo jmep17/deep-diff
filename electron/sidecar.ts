@@ -8,6 +8,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { matchOverride, type EndpointOverrides } from './overrideMatcher.js';
 import { detectAuth0Config } from './authConfigDetector.js';
+import { installDependencies, type PackageManager } from './installDependencies.js';
 import type { SidecarLaunchRequest, SidecarStatus } from './types.js';
 
 const execFileAsync = promisify(execFile);
@@ -20,8 +21,6 @@ let proxyServer: http.Server | undefined;
 // module state (not closed over at launch) so `setSidecarOverrides` can swap it
 // in place — that is what lets a toggle take effect without relaunching.
 let currentOverrides: EndpointOverrides = {};
-
-type PackageManager = 'npm' | 'pnpm' | 'yarn';
 
 function startProxyServer(
   targetPort: number,
@@ -201,6 +200,18 @@ async function prepareRuntimeRepository(repoPath: string, branch?: string) {
     });
     cleanupWorktree = undefined;
   };
+
+  // A fresh worktree has no node_modules; install before the dev server is spawned.
+  try {
+    const packageJson = JSON.parse(
+      await fs.readFile(path.join(worktreePath, 'package.json'), 'utf8'),
+    );
+    const packageManager: PackageManager = await inferPackageManager(worktreePath, packageJson);
+    await installDependencies(worktreePath, packageManager);
+  } catch (error) {
+    await cleanupWorktree?.();
+    throw error;
+  }
 
   return worktreePath;
 }
