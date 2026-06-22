@@ -72,6 +72,32 @@ export interface VisualDiffRequest {
   endpointOverrides?: Record<string, Record<string, unknown>>;
 }
 
+export interface ChangedFilesRequest {
+  repoPath: string;
+  baseRef: string;
+  targetRef: string;
+}
+
+export interface ElementRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** A DOM element probed from the sidecar webview, with its raw source string. */
+export interface ChangeProbe {
+  id: string;
+  sourcePath: string;
+  rect?: ElementRect;
+  tag?: string;
+}
+
+/** A probed element matched to a changed file (repo-relative `file`). */
+export interface ChangeLinkResult extends ChangeProbe {
+  file: string;
+}
+
 export interface VisualDiffRouteReport {
   id: string;
   path: string;

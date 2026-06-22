@@ -73,10 +73,20 @@ button:disabled {
   height: 100vh;
   flex-direction: column;
   gap: 18px;
-  padding: 18px 10px;
+  /* Top inset clears the macOS traffic lights (titleBarStyle 'hiddenInset'),
+     which float over the sidebar's top-left corner. */
+  padding: 40px 10px 18px;
   color: #fdf7eb;
+  -webkit-app-region: drag;
   background:
     linear-gradient(180deg, rgba(169, 31, 31, 0.16), transparent 34%), var(--charcoal-950);
+}
+
+/* Keep interactive rail elements clickable despite the drag region above. */
+.nav-rail nav,
+.nav-rail button,
+.nav-rail a {
+  -webkit-app-region: no-drag;
 }
 
 .brand {
@@ -1213,11 +1223,37 @@ select {
 }
 
 .mini-url {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   min-height: 32px;
   border-bottom: 1px solid var(--line);
   padding: 8px 10px;
   color: var(--muted);
   font-size: 12px;
+}
+
+.mini-url-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mini-reload {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.mini-reload:hover {
+  color: var(--ink);
 }
 
 .pizza-page {
@@ -1240,6 +1276,46 @@ select {
     radial-gradient(circle at 72% 36%, #f2d567 0 4%, transparent 5%),
     radial-gradient(circle at 50% 50%, #e7b953 0 54%, #b66b2e 55% 64%, #7d441f 65%);
   box-shadow: 0 20px 55px rgba(17, 20, 23, 0.42);
+}
+
+/* Live sidecar preview: fills .pizza-page; the .floating-toolbar overlays it.
+   Explicit sizing is mandatory or the <webview> collapses to 0 height (blank). */
+.pizza-page .preview-webview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+/* Kept in layout (so it loads) but invisible until its first successful
+   navigation — masks Chromium's connection-refused error page during sidecar
+   startup, which would otherwise flash in before the dev server is ready. */
+.pizza-page .preview-webview.loading {
+  opacity: 0;
+}
+
+.preview-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+  color: rgba(253, 247, 235, 0.85);
+}
+
+.preview-empty span {
+  font-size: 28px;
+}
+
+.preview-note {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  font-size: 11px;
+  color: rgba(253, 247, 235, 0.6);
 }
 
 .floating-toolbar {
@@ -1302,6 +1378,217 @@ select {
   border-top: 1px solid rgba(255, 255, 255, 0.11);
   padding-top: 9px;
   color: rgba(253, 247, 235, 0.72);
+}
+
+.toolbar-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(253, 247, 235, 0.72);
+  cursor: pointer;
+}
+
+.toolbar-action:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.toolbar-action.active {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+
+/* Endpoint mock list opened from the footer toggle button. */
+.toolbar-endpoints {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 168px;
+  overflow-y: auto;
+  padding: 6px 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.11);
+}
+
+.toolbar-endpoint {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar-endpoint-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: rgba(253, 247, 235, 0.82);
+}
+
+.toolbar-action {
+  position: relative;
+}
+
+.toolbar-action:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+.toolbar-action-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: #d1453b;
+  color: #fff;
+  font-size: 9px;
+  line-height: 14px;
+  text-align: center;
+}
+
+.toolbar-note {
+  margin: 6px 2px 0;
+  font-size: 11px;
+  color: rgba(253, 247, 235, 0.66);
+}
+
+/* Highlight overlays drawn over the live preview for elements whose source file
+   changed between the compared refs. Coords are guest-viewport-relative, which
+   matches the .pizza-page (the webview fills it). */
+.change-overlays {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.change-overlay {
+  position: absolute;
+  border: 2px solid #d1453b;
+  border-radius: 3px;
+  background: rgba(209, 69, 59, 0.12);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+
+.change-overlay-label {
+  position: absolute;
+  top: -16px;
+  left: -2px;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 5px;
+  border-radius: 3px 3px 3px 0;
+  background: #d1453b;
+  color: #fff;
+  font-size: 10px;
+  line-height: 14px;
+}
+
+/* ---- Live preview: fullscreen, draggable + collapsible toolbar ---- */
+
+/* Fullscreen preview fills the whole app window for hands-on testing. */
+.browser-preview-card.fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  background: #111417;
+}
+
+.browser-preview-card.fullscreen .section-heading {
+  display: none;
+}
+
+.browser-preview-card.fullscreen .mini-browser {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+/* In fullscreen the card covers inset:0, so the URL bar sits under the macOS
+   traffic lights (titleBarStyle 'hiddenInset'). Pad left to clear them. */
+.browser-preview-card.fullscreen .mini-url {
+  padding-left: 88px;
+}
+
+.browser-preview-card.fullscreen .pizza-page {
+  flex: 1;
+  min-height: 0;
+}
+
+/* URL-bar action buttons (reload, fullscreen). */
+.mini-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+/* While dragging the toolbar, pointer events must pass through the <webview>
+   (a separate layer) or it swallows pointermove and the drag stalls. */
+.pizza-page.dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.pizza-page.dragging .preview-webview {
+  pointer-events: none;
+}
+
+/* Draggable toolbar: the title bar is the drag handle. */
+.floating-toolbar .toolbar-title {
+  cursor: grab;
+  user-select: none;
+  /* Bigger grab strip: easier to land on when repositioning the toolbar. */
+  padding: 6px 4px;
+  margin: -6px -4px 0;
+  touch-action: none;
+}
+
+.floating-toolbar.dragging .toolbar-title {
+  cursor: grabbing;
+}
+
+.toolbar-grip {
+  color: rgba(253, 247, 235, 0.5);
+  flex: none;
+}
+
+.toolbar-collapse {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  padding: 2px;
+  background: transparent;
+  color: rgba(253, 247, 235, 0.82);
+  cursor: pointer;
+}
+
+.toolbar-collapse:hover {
+  color: #fff;
+}
+
+/* Collapsed toolbar shrinks to just its (still draggable) title bar. */
+.floating-toolbar.collapsed {
+  width: auto;
+  gap: 0;
 }
 
 @media (max-width: 1240px) {

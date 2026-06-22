@@ -4,12 +4,13 @@ import {
   Boxes,
   Bug,
   ChevronDown,
+  ChevronUp,
   ChevronsLeftRight,
   Circle,
   ClipboardList,
   Code2,
+  Crosshair,
   ExternalLink,
-  Eye,
   FolderOpen,
   Github,
   GitBranch,
@@ -17,7 +18,10 @@ import {
   LayoutDashboard,
   ListFilter,
   Loader2,
+  Maximize2,
+  Minimize2,
   Monitor,
+  Move,
   PanelRight,
   Play,
   Plus,
@@ -35,9 +39,17 @@ import {
   WandSparkles,
   Zap,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { seedBranches, seedEndpoints, seedProfiles, seedRepositories } from './data/seed';
 import type {
+  ChangeLinkResult,
+  ChangeProbe,
   DiffStatus,
   EndpointDefinition,
   MockProfile,
@@ -381,6 +393,27 @@ function App() {
     });
   }
 
+  // Toggle a single endpoint's mock override on/off for the active profile.
+  // A running sidecar reflects this live: SidecarPanel watches the active
+  // profile's effective overrides and pushes them to the proxy via
+  // `setSidecarOverrides` (bringing a proxy up on the first override), then
+  // reloads the preview. A visual-diff run still reads them at diff time.
+  function toggleEndpointOverride(endpoint: EndpointDefinition) {
+    const key = `${endpoint.method.toUpperCase()}:${endpoint.path}`;
+    setProfiles((current) =>
+      current.map((profile) => {
+        if (profile.id !== activeProfileId) return profile;
+        const next = { ...profile.endpointOverrides };
+        if (next[key]) {
+          delete next[key];
+        } else {
+          next[key] = endpoint.mock;
+        }
+        return { ...profile, endpointOverrides: next };
+      }),
+    );
+  }
+
   function activateProfile(profileId: string) {
     setActiveProfileId(profileId);
     setProfiles((current) =>
@@ -534,8 +567,14 @@ function App() {
               onLaunch={launchSidecar}
               onStop={stopSidecar}
               profiles={profiles}
+              endpoints={endpoints}
+              repoPath={selectedRepo.path}
+              baseRef={toRunRef(baseBranch)}
+              targetRef={toRunRef(targetBranch)}
               onToggleProfile={toggleProfile}
               onActivateProfile={activateProfile}
+              onToggleEndpointOverride={toggleEndpointOverride}
+              onSidecarStatus={setSidecar}
             />
           </div>
         )}
@@ -573,8 +612,14 @@ function App() {
               onLaunch={launchSidecar}
               onStop={stopSidecar}
               profiles={profiles}
+              endpoints={endpoints}
+              repoPath={selectedRepo.path}
+              baseRef={toRunRef(baseBranch)}
+              targetRef={toRunRef(targetBranch)}
               onToggleProfile={toggleProfile}
               onActivateProfile={activateProfile}
+              onToggleEndpointOverride={toggleEndpointOverride}
+              onSidecarStatus={setSidecar}
             />
           </div>
         )}
@@ -1103,6 +1148,60 @@ function ScreenshotFrame({
   );
 }
 
+// Minimal shape of the Electron <webview> element we use (avoids depending on
+// Electron.WebviewTag types in the renderer program).
+interface PreviewWebview extends HTMLElement {
+  reload(): void;
+  getURL(): string;
+  openDevTools(): void;
+  executeJavaScript(code: string): Promise<unknown>;
+}
+
+// Runs inside the sidecar <webview>. Walks the DOM and reads each visible
+// element's source origin from (a) an explicit data attribute, or (b) the React
+// dev-build fiber's `_debugSource` (fileName + line). Returns JSON-serializable
+// probes; the main process matches them against the changed-file set.
+const CHANGE_PROBE_SCRIPT = `(() => {
+  const out = [];
+  const attrSource = (el) =>
+    el.getAttribute('data-dds-source') ||
+    el.getAttribute('data-source') ||
+    el.getAttribute('data-inspector-relative-path') || '';
+  const fiberSource = (el) => {
+    for (const key in el) {
+      if (key.indexOf('__reactFiber$') === 0 || key.indexOf('__reactInternalInstance$') === 0) {
+        let fiber = el[key];
+        let depth = 0;
+        while (fiber && depth < 40) {
+          const src = fiber._debugSource;
+          if (src && src.fileName) {
+            return src.fileName + (src.lineNumber ? ':' + src.lineNumber : '');
+          }
+          fiber = fiber._debugOwner || fiber.return;
+          depth++;
+        }
+      }
+    }
+    return '';
+  };
+  const nodes = document.body ? document.body.querySelectorAll('*') : [];
+  let id = 0;
+  for (const el of nodes) {
+    const source = attrSource(el) || fiberSource(el);
+    if (!source) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) continue;
+    out.push({
+      id: 'el' + id++,
+      sourcePath: source,
+      rect: { x: r.left, y: r.top, width: r.width, height: r.height },
+      tag: el.tagName.toLowerCase(),
+    });
+    if (id > 4000) break;
+  }
+  return out;
+})()`;
+
 function SidecarPanel({
   sidecar,
   profile,
@@ -1110,8 +1209,14 @@ function SidecarPanel({
   onLaunch,
   onStop,
   profiles,
+  endpoints,
+  repoPath,
+  baseRef,
+  targetRef,
   onToggleProfile,
   onActivateProfile,
+  onToggleEndpointOverride,
+  onSidecarStatus,
 }: {
   sidecar: SidecarStatus;
   profile: MockProfile;
@@ -1119,9 +1224,232 @@ function SidecarPanel({
   onLaunch: () => Promise<void>;
   onStop: () => Promise<void>;
   profiles: MockProfile[];
+  endpoints: EndpointDefinition[];
+  repoPath?: string;
+  baseRef: string;
+  targetRef: string;
   onToggleProfile: (profileId: string) => void;
   onActivateProfile: (profileId: string) => void;
+  onToggleEndpointOverride: (endpoint: EndpointDefinition) => void;
+  onSidecarStatus: (status: SidecarStatus) => void;
 }) {
+  const webviewRef = useRef<PreviewWebview | null>(null);
+  // Only embed a live <webview> in the real Electron app (bridge present) with a
+  // running sidecar. The demo fallback sets running:true in a plain browser, so
+  // gating on sidecar.running alone would mount an inert webview there.
+  const canEmbed = Boolean(bridge) && sidecar.running && Boolean(sidecar.url);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  // The webview is hidden until its first *successful* navigation so the user
+  // never sees Chromium's connection-refused error page flash by (the sidecar
+  // dev server isn't listening yet when launchSidecar returns).
+  const [previewLoaded, setPreviewLoaded] = useState(false);
+  const previewRef = useRef<HTMLDivElement | null>(null);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [toolbarCollapsed, setToolbarCollapsed] = useState(false);
+  const [showEndpoints, setShowEndpoints] = useState(false);
+  const [toolbarPos, setToolbarPos] = useState<{ x: number; y: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [changeLinks, setChangeLinks] = useState<ChangeLinkResult[]>([]);
+  const [inspecting, setInspecting] = useState(false);
+  const [changeNote, setChangeNote] = useState<string | null>(null);
+
+  // Highlight the on-page elements that originate from a file changed between
+  // baseRef and targetRef. Probes the live webview DOM, then has the main
+  // process match each element's source against the git diff. Toggles off when
+  // highlights are already shown.
+  async function inspectChanges() {
+    if (changeLinks.length > 0) {
+      setChangeLinks([]);
+      setChangeNote(null);
+      return;
+    }
+    const webview = webviewRef.current;
+    if (!webview || !bridge?.linkChanges || !repoPath) return;
+    setInspecting(true);
+    setChangeNote(null);
+    try {
+      const probes = (await webview.executeJavaScript(CHANGE_PROBE_SCRIPT)) as ChangeProbe[];
+      const links = await bridge.linkChanges({
+        repoPath,
+        baseRef,
+        targetRef,
+        elements: Array.isArray(probes) ? probes : [],
+      });
+      setChangeLinks(links);
+      if (links.length === 0) {
+        setChangeNote(
+          probes && probes.length
+            ? 'No changed-file elements on this page.'
+            : 'No source-tagged elements found (needs a React dev build or data-dds-source).',
+        );
+      }
+    } catch (err) {
+      setChangeNote(err instanceof Error ? err.message : 'Failed to inspect changes.');
+    } finally {
+      setInspecting(false);
+    }
+  }
+
+  useEffect(() => {
+    const el = webviewRef.current;
+    if (!el || !canEmbed) return;
+
+    // New URL → not-yet-loaded, so the panel shows "Connecting…" and the webview
+    // stays hidden until a navigation completes cleanly.
+    setPreviewLoaded(false);
+    setPreviewError(null);
+
+    // did-fail-load AND did-finish-load/dom-ready all fire for Chromium's error
+    // page, so "loaded" can't key off dom-ready. A navigation is a genuine
+    // success only if it stops loading WITHOUT having failed — track that flag.
+    let navFailed = false;
+    let retryTimer: number | undefined;
+
+    // Safety net: if a navigation somehow settles before these listeners attach
+    // (e.g. a remount while the server is already up), onStop can be missed and
+    // the webview would stay hidden behind "Connecting…". Never stay hidden
+    // longer than this — worst case it reveals whatever the webview shows, which
+    // is the pre-existing behavior anyway.
+    const revealFallback = window.setTimeout(() => setPreviewLoaded(true), 8000);
+
+    const onStart = () => {
+      navFailed = false;
+    };
+    const onFail = (event: Event) => {
+      const detail = event as unknown as { errorCode: number; isMainFrame?: boolean };
+      // -3 = ABORTED (navigation superseded); ignore subframe failures too.
+      if (detail.errorCode === -3 || detail.isMainFrame === false) return;
+      navFailed = true;
+      // launchSidecar returns before the dev server is listening, so the first
+      // load(s) refuse; retry until one succeeds.
+      setPreviewError('Connecting to the sidecar…');
+      window.clearTimeout(retryTimer);
+      retryTimer = window.setTimeout(() => webviewRef.current?.reload(), 1200);
+    };
+    const onStop = () => {
+      if (navFailed) return; // error page — keep hidden, keep retrying
+      window.clearTimeout(retryTimer);
+      window.clearTimeout(revealFallback);
+      setPreviewError(null);
+      setPreviewLoaded(true);
+    };
+
+    el.addEventListener('did-start-loading', onStart);
+    el.addEventListener('did-fail-load', onFail as EventListener);
+    el.addEventListener('did-stop-loading', onStop);
+    return () => {
+      window.clearTimeout(retryTimer);
+      window.clearTimeout(revealFallback);
+      el.removeEventListener('did-start-loading', onStart);
+      el.removeEventListener('did-fail-load', onFail as EventListener);
+      el.removeEventListener('did-stop-loading', onStop);
+    };
+  }, [canEmbed, sidecar.url]);
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setFullscreen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [fullscreen]);
+
+  // Effective overrides for the active profile: an enabled profile contributes
+  // its endpoint map; a disabled one contributes nothing (every request passes
+  // through). Mirrors what launchSidecar/runVisualDiff send.
+  const overridesKey = useMemo(
+    () => JSON.stringify(profile.enabled ? profile.endpointOverrides : {}),
+    [profile.enabled, profile.endpointOverrides],
+  );
+  // The override map last pushed to (or first observed on) the running sidecar.
+  // Null = no running sidecar observed yet; the first observation after a launch
+  // records the launch-time state without re-pushing it.
+  const lastSyncedOverridesRef = useRef<string | null>(null);
+
+  // Keep a running sidecar's mock proxy in sync with toolbar toggles, without a
+  // relaunch. On change we push the effective overrides over IPC; the main
+  // process swaps the proxy's live map (bringing a proxy up the first time and
+  // returning its new URL). We then reload the <webview> so the page re-fetches
+  // through the proxy — or, when a proxy was just created, repoint it (changing
+  // sidecar.url remounts the keyed <webview> at the new proxy URL).
+  useEffect(() => {
+    if (!bridge?.setSidecarOverrides || !sidecar.running) {
+      lastSyncedOverridesRef.current = null;
+      return;
+    }
+    const applyOverrides = bridge.setSidecarOverrides;
+    // First run for this sidecar = the launch-time state, already applied.
+    if (lastSyncedOverridesRef.current === null) {
+      lastSyncedOverridesRef.current = overridesKey;
+      return;
+    }
+    if (lastSyncedOverridesRef.current === overridesKey) return;
+    lastSyncedOverridesRef.current = overridesKey;
+
+    const nextOverrides = profile.enabled ? profile.endpointOverrides : {};
+    const currentUrl = sidecar.url;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const next = await applyOverrides(nextOverrides);
+        if (cancelled) return;
+        if (next.url === currentUrl) {
+          webviewRef.current?.reload();
+        } else {
+          onSidecarStatus(next);
+        }
+      } catch {
+        // Best-effort: the toggle still lives in the profile and applies on the
+        // next launch/diff even if this live update failed.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [overridesKey, sidecar.running, sidecar.url, profile, onSidecarStatus]);
+
+  // Drag the floating toolbar within the preview area. While dragging we set a
+  // `dragging` class so the <webview> gets pointer-events:none — otherwise the
+  // webview (a separate layer) swallows pointer moves and the drag stalls.
+  function startToolbarDrag(event: ReactPointerEvent) {
+    const container = previewRef.current;
+    const toolbar = (event.target as HTMLElement).closest(
+      '.floating-toolbar',
+    ) as HTMLElement | null;
+    if (!container || !toolbar) return;
+    event.preventDefault();
+    // Capture the pointer and kill the webview's pointer-events synchronously.
+    // setDragging() is async, so without this the webview (a separate OS layer)
+    // swallows the first moves and the drag feels sticky on grab.
+    const handle = event.currentTarget as HTMLElement;
+    handle.setPointerCapture?.(event.pointerId);
+    container.classList.add('dragging');
+    const startRect = toolbar.getBoundingClientRect();
+    const offX = event.clientX - startRect.left;
+    const offY = event.clientY - startRect.top;
+    setDragging(true);
+
+    const onMove = (ev: PointerEvent) => {
+      const c = container.getBoundingClientRect();
+      const maxX = Math.max(0, c.width - toolbar.offsetWidth);
+      const maxY = Math.max(0, c.height - toolbar.offsetHeight);
+      const x = Math.min(Math.max(0, ev.clientX - c.left - offX), maxX);
+      const y = Math.min(Math.max(0, ev.clientY - c.top - offY), maxY);
+      setToolbarPos({ x, y });
+    };
+    const onUp = (ev: PointerEvent) => {
+      setDragging(false);
+      container.classList.remove('dragging');
+      handle.releasePointerCapture?.(ev.pointerId);
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+    };
+    // Listen on the capture target so moves are delivered even over the webview.
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
+  }
+
   return (
     <aside className="right-panel">
       <section className="sidecar-card">
@@ -1170,7 +1498,7 @@ function SidecarPanel({
         </div>
       </section>
 
-      <section className="browser-preview-card">
+      <section className={cx('browser-preview-card', fullscreen && 'fullscreen')}>
         <div className="section-heading inline">
           <div>
             <h2>Browser preview</h2>
@@ -1179,42 +1507,191 @@ function SidecarPanel({
           <ExternalLink size={17} />
         </div>
         <div className="mini-browser">
-          <div className="mini-url">{sidecar.url ?? 'http://localhost:3000'}</div>
-          <div className="pizza-page">
-            <div className="pizza-photo" />
-            <div className="floating-toolbar">
-              <div className="toolbar-title">
+          <div className="mini-url">
+            <span className="mini-url-text">{sidecar.url ?? 'http://localhost:3000'}</span>
+            <div className="mini-actions">
+              {canEmbed && (
+                <button
+                  type="button"
+                  className="mini-reload"
+                  onClick={() => webviewRef.current?.reload()}
+                  aria-label="Reload preview"
+                >
+                  <RefreshCcw size={13} />
+                </button>
+              )}
+              <button
+                type="button"
+                className="mini-reload"
+                onClick={() => setFullscreen((value) => !value)}
+                aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
+              >
+                {fullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+              </button>
+            </div>
+          </div>
+          <div className={cx('pizza-page', dragging && 'dragging')} ref={previewRef}>
+            {canEmbed ? (
+              <webview
+                key={sidecar.url}
+                ref={(el) => {
+                  webviewRef.current = el as PreviewWebview | null;
+                }}
+                src={sidecar.url}
+                partition="sidecar-preview"
+                className={cx('preview-webview', !previewLoaded && 'loading')}
+              />
+            ) : bridge ? (
+              <div className="preview-empty">
+                <span>🍕</span>
+                <p>Launch the sidecar to preview the live target here.</p>
+              </div>
+            ) : (
+              <>
+                <div className="pizza-photo" />
+                <div className="preview-note">Live preview is desktop-only.</div>
+              </>
+            )}
+            {canEmbed && !previewLoaded && (
+              <div className="preview-empty">
+                <span>🍕</span>
+                <p>{previewError ?? 'Connecting to the sidecar…'}</p>
+              </div>
+            )}
+            {changeLinks.length > 0 && (
+              <div className="change-overlays">
+                {changeLinks.map((link) => (
+                  <div
+                    key={link.id}
+                    className="change-overlay"
+                    style={{
+                      left: link.rect?.x ?? 0,
+                      top: link.rect?.y ?? 0,
+                      width: link.rect?.width ?? 0,
+                      height: link.rect?.height ?? 0,
+                    }}
+                    title={`${link.tag ?? 'element'} ← ${link.file}`}
+                  >
+                    <span className="change-overlay-label">{link.file}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div
+              className={cx(
+                'floating-toolbar',
+                toolbarCollapsed && 'collapsed',
+                dragging && 'dragging',
+              )}
+              style={
+                toolbarPos
+                  ? { left: toolbarPos.x, top: toolbarPos.y, right: 'auto', bottom: 'auto' }
+                  : undefined
+              }
+            >
+              <div className="toolbar-title" onPointerDown={startToolbarDrag}>
+                <Move className="toolbar-grip" size={13} />
                 <span>🍕</span>
                 <strong>Deep Dish Diff</strong>
-              </div>
-              <label>
-                <span>Profile</span>
-                <select
-                  value={profile.id}
-                  onChange={(event) => onActivateProfile(event.target.value)}
+                <button
+                  type="button"
+                  className="toolbar-collapse"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={() => setToolbarCollapsed((value) => !value)}
+                  aria-label={toolbarCollapsed ? 'Expand toolbar' : 'Collapse toolbar'}
                 >
-                  {profiles.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {profiles.slice(0, 4).map((item) => (
-                <div className="toolbar-toggle" key={item.id}>
-                  <span>{item.name.replace('Margherita ', '').replace('Pepperoni ', '')}</span>
-                  <Toggle
-                    checked={item.enabled}
-                    onChange={() => onToggleProfile(item.id)}
-                    label={`Preview ${item.name}`}
-                  />
-                </div>
-              ))}
-              <div className="toolbar-footer">
-                <Eye size={15} />
-                <TerminalSquare size={15} />
-                <ToggleRight size={16} />
+                  {toolbarCollapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </button>
               </div>
+              {!toolbarCollapsed && (
+                <>
+                  <label>
+                    <span>Profile</span>
+                    <select
+                      value={profile.id}
+                      onChange={(event) => onActivateProfile(event.target.value)}
+                    >
+                      {profiles.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {profiles.slice(0, 4).map((item) => (
+                    <div className="toolbar-toggle" key={item.id}>
+                      <span>{item.name.replace('Margherita ', '').replace('Pepperoni ', '')}</span>
+                      <Toggle
+                        checked={item.enabled}
+                        onChange={() => onToggleProfile(item.id)}
+                        label={`Preview ${item.name}`}
+                      />
+                    </div>
+                  ))}
+                  {showEndpoints && (
+                    <div className="toolbar-endpoints">
+                      {endpoints.map((endpoint) => {
+                        const key = `${endpoint.method.toUpperCase()}:${endpoint.path}`;
+                        const on = Boolean(profile.endpointOverrides[key]);
+                        return (
+                          <div className="toolbar-endpoint" key={endpoint.id}>
+                            <MethodPill method={endpoint.method} />
+                            <span className="toolbar-endpoint-path">{endpoint.path}</span>
+                            <Toggle
+                              checked={on}
+                              onChange={() => onToggleEndpointOverride(endpoint)}
+                              label={`Mock ${endpoint.method} ${endpoint.path}`}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div className="toolbar-footer">
+                    <button
+                      type="button"
+                      className={cx('toolbar-action', showEndpoints && 'active')}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={() => setShowEndpoints((value) => !value)}
+                      aria-pressed={showEndpoints}
+                      aria-label="Endpoint mocks"
+                      title="Endpoint mocks"
+                    >
+                      <ToggleRight size={16} />
+                    </button>
+                    {canEmbed && (
+                      <button
+                        type="button"
+                        className="toolbar-action"
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={() => webviewRef.current?.openDevTools()}
+                        aria-label="Open devtools"
+                        title="Open devtools"
+                      >
+                        <TerminalSquare size={15} />
+                      </button>
+                    )}
+                    {canEmbed && (
+                      <button
+                        type="button"
+                        className={cx('toolbar-action', changeLinks.length > 0 && 'active')}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={inspectChanges}
+                        disabled={inspecting || !previewLoaded}
+                        aria-pressed={changeLinks.length > 0}
+                        aria-label="Highlight changed elements"
+                        title={`Highlight elements from files changed ${baseRef}…${targetRef}`}
+                      >
+                        <Crosshair size={15} />
+                        {changeLinks.length > 0 && (
+                          <span className="toolbar-action-badge">{changeLinks.length}</span>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                  {changeNote && <p className="toolbar-note">{changeNote}</p>}
+                </>
+              )}
             </div>
           </div>
         </div>
