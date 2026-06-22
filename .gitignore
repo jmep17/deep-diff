@@ -19,5 +19,7 @@ cypress/screenshots/
 .serena/
 .claude/
 
-# Nested git fixture — restore from the committed bundle via scripts/restore-fixtures.sh
+# Nested git fixtures — restore from the committed bundles via scripts/restore-fixtures.sh
 mock-repositories/auth0-routes-fixture/
+mock-workspace/storefront-auth0/
+mock-workspace/marketing-site/

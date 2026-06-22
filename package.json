@@ -14,6 +14,7 @@
     "build:electron": "tsc -p tsconfig.electron.json && esbuild electron/preload.ts --bundle --format=cjs --platform=node --external:electron --outfile=dist-electron/preload.cjs && rm -f dist-electron/preload.js",
     "preview": "vite preview --host 127.0.0.1",
     "start": "electron .",
+    "setup:fixtures": "bash scripts/restore-fixtures.sh",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.electron.json",
     "cy:open": "cypress open --browser ${CYPRESS_BROWSER:-electron} --e2e",
     "cy:run": "cypress run --browser ${CYPRESS_BROWSER:-electron}",

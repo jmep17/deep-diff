@@ -2,11 +2,14 @@
 #
 # Restore the nested mock-repository git fixtures from their committed bundles.
 #
-# mock-repositories/auth0-routes-fixture is its own git repository with branches
-# (main, feature/auth0-preview-callbacks) that the visual-diff/sidecar code runs
-# `git worktree`/checkout against. A nested .git can't be committed into the
-# parent repo, so the fixture's full history is shipped as a git bundle and the
-# live directory is gitignored. Run this once after cloning the parent repo.
+# Several fixtures are their own git repositories with multiple branches that the
+# visual-diff/sidecar code runs `git worktree`/checkout against:
+#   - mock-repositories/auth0-routes-fixture  (main, feature/auth0-preview-callbacks)
+#   - mock-workspace/storefront-auth0         (main, feature/holiday-storefront-redesign)
+#   - mock-workspace/marketing-site           (main, feature/2026-brand-refresh)
+# A nested .git can't be committed into the parent repo, so each fixture's full
+# history is shipped as a git bundle (sibling <name>.bundle) and the live
+# directory is gitignored. Run this once after cloning the parent repo.
 #
 # Idempotent: skips any fixture that already has a .git directory.
 
@@ -54,3 +57,11 @@ restore_bundle() {
 restore_bundle \
   "$repo_root/mock-repositories/auth0-routes-fixture" \
   "$repo_root/mock-repositories/auth0-routes-fixture.bundle"
+
+restore_bundle \
+  "$repo_root/mock-workspace/storefront-auth0" \
+  "$repo_root/mock-workspace/storefront-auth0.bundle"
+
+restore_bundle \
+  "$repo_root/mock-workspace/marketing-site" \
+  "$repo_root/mock-workspace/marketing-site.bundle"
