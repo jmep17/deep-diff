@@ -1,5 +1,5 @@
 {
-  "name": "deep-dish-diff",
+  "name": "deep-diff",
   "version": "0.1.0",
   "packageManager": "pnpm@10.28.2",
   "description": "A local desktop visual regression tester with branch comparison, endpoint discovery, and configurable mock profiles.",

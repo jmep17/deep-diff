@@ -449,7 +449,7 @@ function App() {
           <div className="brand-mark" aria-hidden="true">
             <img src="/brand/mark-primary.svg" alt="" />
           </div>
-          <span>Deep Dish Diff</span>
+          <span>Deep Diff</span>
         </div>
         <nav>
           {navItems.map((item) => {
@@ -1592,7 +1592,7 @@ function SidecarPanel({
               <div className="toolbar-title" onPointerDown={startToolbarDrag}>
                 <Move className="toolbar-grip" size={13} />
                 <span>🍕</span>
-                <strong>Deep Dish Diff</strong>
+                <strong>Deep Diff</strong>
                 <button
                   type="button"
                   className="toolbar-collapse"

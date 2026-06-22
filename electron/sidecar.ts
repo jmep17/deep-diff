@@ -161,7 +161,7 @@ async function prepareRuntimeRepository(repoPath: string, branch?: string) {
     return repoPath;
   }
 
-  const worktreeRoot = path.join(os.tmpdir(), 'deep-dish-diff-worktrees');
+  const worktreeRoot = path.join(os.tmpdir(), 'deep-diff-worktrees');
   const worktreePath = path.join(
     worktreeRoot,
     `${safeName(path.basename(repoPath))}-${safeName(branch)}-${Date.now()}`,

@@ -51,7 +51,7 @@ function pruneWorktrees(repoPath) {
     for (const line of list.split('\n')) {
       if (!line.startsWith('worktree ')) continue;
       const wt = line.slice('worktree '.length).trim();
-      if (wt.includes('deep-dish-diff') && wt.includes('worktrees')) {
+      if (wt.includes('deep-diff') && wt.includes('worktrees')) {
         try {
           execFileSync('git', ['-C', repoPath, 'worktree', 'remove', '--force', wt], {
             stdio: 'ignore',
@@ -195,7 +195,7 @@ async function testScenario(name) {
 }
 
 async function main() {
-  console.log('Deep Dish Diff — real-diff scenario repo tests');
+  console.log('Deep Diff — real-diff scenario repo tests');
   console.log(`Workspace: ${workspaceRoot}`);
   await testWorkspaceDiscovery();
   for (const name of scenarios) {

@@ -82,7 +82,7 @@ const mockRepositories: RepositorySummary[] = [
   {
     id: 'auth0-routes-fixture',
     name: 'auth0-routes-fixture',
-    fullName: 'Deep Dish Diff / auth0-routes-fixture',
+    fullName: 'Deep Diff / auth0-routes-fixture',
     source: 'local',
     path: '/mock/auth0-routes-fixture',
     defaultBranch: 'main',

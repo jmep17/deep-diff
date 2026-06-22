@@ -301,7 +301,7 @@ async function testVisualDiffWithElectron() {
 }
 
 async function main() {
-  console.log('Deep Dish Diff mock repository integration test');
+  console.log('Deep Diff mock repository integration test');
   console.log(`Fixture: ${fixturePath}`);
 
   const token = getGitHubToken();

@@ -133,7 +133,7 @@ async function prepareRuntimeRepository(repoPath: string, ref: string): Promise<
     };
   }
 
-  const worktreeRoot = path.join(os.tmpdir(), 'deep-dish-diff-compare-worktrees');
+  const worktreeRoot = path.join(os.tmpdir(), 'deep-diff-compare-worktrees');
   const worktreePath = path.join(
     worktreeRoot,
     `${safeName(path.basename(repoPath))}-${safeName(ref)}-${Date.now()}`,

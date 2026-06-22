@@ -58,7 +58,7 @@ const MARKER = 'MOCKED_LIVE';
 const rawServerUrl = (s) => `http://127.0.0.1:${s.port}`;
 
 async function main() {
-  console.log('Deep Dish Diff — live mock-update (no relaunch) test');
+  console.log('Deep Diff — live mock-update (no relaunch) test');
   console.log(`Repo: ${repoPath}`);
 
   // ── Case 1: launched WITH overrides (proxy already up) ─────────────────────

@@ -45,7 +45,7 @@ async function waitForReady(url, timeoutMs = 20000) {
 const MARKER = 'MOCKED_BY_PROFILE';
 
 async function main() {
-  console.log('Deep Dish Diff — sidecar + active mocks test');
+  console.log('Deep Diff — sidecar + active mocks test');
   console.log(`Repo: ${repoPath}`);
 
   // ── Case 1: sidecar WITH overrides → proxy fronts the dev server ───────────

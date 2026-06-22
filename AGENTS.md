@@ -1,6 +1,6 @@
 ## Notion task board
 
-Project tasks for Deep Dish Diff are tracked on a Notion Kanban board, accessed via the Notion MCP server. The board (a database titled "Tasks") lives under a "Deep Diff" page in the workspace. Its schema: `Status` (Not started / Planning / Ready / In progress / Done), `Agent status` (free text, for an agent to report current activity), `Agent blocked` (checkbox, for an agent to flag when it needs user input), plus `Assignee` and `Due date`. Use `/notion:tasks:plan` and `/notion:tasks:build` to plan and execute tasks pulled from this board.
+Project tasks for Deep Diff are tracked on a Notion Kanban board, accessed via the Notion MCP server. The board (a database titled "Tasks") lives under a "Deep Diff" page in the workspace. Its schema: `Status` (Not started / Planning / Ready / In progress / Done), `Agent status` (free text, for an agent to report current activity), `Agent blocked` (checkbox, for an agent to flag when it needs user input), plus `Assignee` and `Due date`. Use `/notion:tasks:plan` and `/notion:tasks:build` to plan and execute tasks pulled from this board.
 
 <claude-mem-context>
 # Memory Context
@@ -21,16 +21,16 @@ Stats: 50 obs (16,783t read) | 300,538t work | 94% savings
 4415 1:56p 🔴 E2E Vite dev server script hardcoded port, ignoring override variable
 4430 3:25p 🔵 Logo Creation Skill Loaded for Deep Diff Project
 4431 " 🔵 Deep Diff Project Structure: Electron-Based Visual Diff Developer Tool
-4432 3:26p 🔵 Deep Dish Diff Brand Context: Pizza-Themed Design System with Emoji Placeholder Logo
+4432 3:26p 🔵 Deep Diff Brand Context: Pizza-Themed Design System with Emoji Placeholder Logo
 4433 " 🔵 Brand Mark Must Work Standalone at Collapsed Nav Rail Width
 4434 " 🔵 Logo Asset Target Location: ./public Directory Exists for Static Assets
 4435 " 🔵 public/ Directory Is Empty — No Favicon or Static Assets Exist Yet
-4436 3:29p 🟣 Deep Dish Diff Vector Logo System Created — 5 SVG Files Across public/brand/
+4436 3:29p 🟣 Deep Diff Vector Logo System Created — 5 SVG Files Across public/brand/
 4437 " 🟣 Logo System Successfully Applied to Repository — Patch Confirmed
 4438 " 🟣 Logo Review HTML Page Created at public/brand/logo-review.html
 4439 3:30p 🔵 All 5 SVG Logo Files Pass Production Validation — Typecheck Skipped Due to fnm Environment Issue
 4440 " 🔵 TypeScript Typecheck Passes After Logo Changes with Escalated Sandbox Permissions
-4441 " 🟣 Vector Logo Asset Set Created for Deep Dish Diff
+4441 " 🟣 Vector Logo Asset Set Created for Deep Diff
 4442 " ✅ App Brand Mark Replaced from Pizza Emoji to SVG Image
 4443 " 🟣 Static Logo Review HTML Page Added
 4444 " 🔵 TypeScript Typecheck Blocked by fnm Multishell Symlink Permission Issue
@@ -41,10 +41,10 @@ Stats: 50 obs (16,783t read) | 300,538t work | 94% savings
 4449 " 🔵 All Logo SVG Assets Loaded and Rendered Successfully in Browser
 4450 3:32p 🔵 HTTP Server Logs Confirm All SVG Brand Assets Served HTTP 200 — Only favicon.ico 404 is Expected
 4451 " ✅ Logo Review Page Updated to Self-Reference favicon.svg
-4452 " 🟣 Deep Dish Diff Vector Logo System — Final QA Passed
+4452 " 🟣 Deep Diff Vector Logo System — Final QA Passed
 4453 3:34p ✅ Logo Mark Refined: Literal Code-Row Rects Replaced with Pizza Topping Elements
 4454 3:35p ✅ Refined Logo Design Applied to All 4 Production SVGs — Re-Validated Clean
-4455 " 🟣 Deep Dish Diff Logo System v2 — Final QA Confirmed, All Assets Production-Ready
+4455 " 🟣 Deep Diff Logo System v2 — Final QA Confirmed, All Assets Production-Ready
 4456 3:46p 🟣 Logo Review Page — Diff-Themed Pizza Polish Request
 4457 " 🔵 Codex "create-logos" Skill — Design Guidance for Diff/Dev-Tool Brands
 4458 3:47p 🔵 SVG Production Standards Applied to Deep Diff Logo Work
@@ -53,7 +53,7 @@ Stats: 50 obs (16,783t read) | 300,538t work | 94% savings
 4461 " 🟣 Deep Diff Brand SVG Patch Confirmed Applied — All Four Files Updated
 4462 " 🟣 Deep Diff Monochrome Mark Updated — Diff Symbols and ClipPath Added to mark-mono.svg
 4463 3:50p 🔵 SVG Validation Passed — All Five Brand Assets Clean and Structurally Consistent
-4464 " 🟣 Deep Dish Diff logos polished with diff markers and clipping
+4464 " 🟣 Deep Diff logos polished with diff markers and clipping
 4465 " 🔵 Logo Review Dev Server on Port 8794 Serves public/brand Directory
 4466 3:51p 🔵 Logo Review Page Loaded Successfully — 10 Images All Rendered
 4467 3:56p 🔵 Codex In-App Browser Skill Bootstrap Process

@@ -79,7 +79,7 @@ async function createWindow() {
     height: 980,
     minWidth: 1180,
     minHeight: 760,
-    title: 'Deep Dish Diff',
+    title: 'Deep Diff',
     backgroundColor: '#faf3e6',
     titleBarStyle: 'hiddenInset',
     webPreferences: {
