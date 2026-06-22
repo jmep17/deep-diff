@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -232,6 +232,22 @@ app.whenReady().then(async () => {
     const request = await validateVisualDiffRequest(raw, authorizedRoots);
     request.overlayDir = await resolveOverlayDir(request.repoPath);
     return runVisualDiff(request);
+  });
+
+  // Resolve (creating + documenting) the repo's overlay folder, and optionally open it
+  // in the OS file manager. Lets the renderer create the folder on repo-select and
+  // reveal it on demand, instead of it only appearing buried in userData after a diff.
+  registerHandler('overlay:folder', async (_event, raw) => {
+    const repoPath = await assertAuthorizedRepoPath(
+      (raw as { repoPath?: unknown })?.repoPath,
+      authorizedRoots,
+    );
+    const dir = await ensureOverlayScaffold(overlaysRoot(), repoPath);
+    if ((raw as { open?: unknown })?.open) {
+      const err = await shell.openPath(dir);
+      if (err) logError('overlay:open', err);
+    }
+    return dir;
   });
 
   registerHandler('changes:files', async (_event, raw) => {

@@ -148,6 +148,9 @@ function App() {
   const [diffStatus, setDiffStatus] = useState<DiffStatus>('idle');
   const [diffReport, setDiffReport] = useState<VisualDiffReport | null>(null);
   const [selectedReportRouteId, setSelectedReportRouteId] = useState<string | null>(null);
+  // Absolute path of the selected local repo's overlay folder (test-only files Deep Diff
+  // copies over the capture worktree). Created on select; revealed via the topbar button.
+  const [overlayPath, setOverlayPath] = useState<string | null>(null);
   const [sidecar, setSidecar] = useState<SidecarStatus>({ running: false });
   const [message, setMessage] = useState(
     'Use a local folder or GitHub organization to select a repository.',
@@ -184,6 +187,12 @@ function App() {
     setBaseBranch(nextBase);
 
     if (repo.source === 'local' && repo.path && bridge) {
+      // Create the per-repo overlay folder now (don't wait for a diff) so it exists and
+      // its path is known the moment a local repo is selected. Fire-and-forget; optional
+      // so a partial bridge (e.g. the Cypress mock) doesn't break selection.
+      void bridge
+        .overlayFolder?.(repo.path, false)
+        .then(setOverlayPath, () => setOverlayPath(null));
       try {
         setBusy('Scanning local repository');
         const [localBranches, detectedEndpoints] = await Promise.all([
@@ -211,6 +220,7 @@ function App() {
     }
 
     if (repo.source === 'github' && repo.owner && bridge) {
+      setOverlayPath(null); // remote repo has no local worktree to overlay
       try {
         setBusy('Loading GitHub branches');
         const remoteBranches = await bridge.fetchGitHubBranches({
@@ -238,6 +248,28 @@ function App() {
     setEndpoints(seedEndpoints);
     setDiffReport(null);
     setSelectedReportRouteId(null);
+    setOverlayPath(null);
+  }
+
+  // Create (if needed) and open the selected local repo's overlay folder in the OS file
+  // manager. Self-diagnosing: if the bridge isn't loaded (demo mode), say so explicitly
+  // rather than doing nothing.
+  async function openOverlayFolder() {
+    if (!bridge?.overlayFolder) {
+      setMessage('Overlay folder unavailable — Electron bridge not loaded (demo mode).');
+      return;
+    }
+    if (!selectedRepo.path) {
+      setMessage('Select a local repository to use an overlay folder.');
+      return;
+    }
+    try {
+      const dir = await bridge.overlayFolder(selectedRepo.path, true);
+      setOverlayPath(dir);
+      setMessage(`Overlay folder: ${dir}`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not open the overlay folder.');
+    }
   }
 
   async function chooseWorkspace() {
@@ -491,6 +523,17 @@ function App() {
               <Github size={16} />
               Fetch GitHub org
             </button>
+            {selectedRepo.path && (
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={openOverlayFolder}
+                title={overlayPath ?? 'Open the overlay folder for this repository'}
+              >
+                <FolderOpen size={16} />
+                Overlay folder
+              </button>
+            )}
           </div>
         </header>
 

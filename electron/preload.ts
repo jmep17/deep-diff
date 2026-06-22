@@ -24,4 +24,6 @@ contextBridge.exposeInMainWorld('deepDiff', {
   getChangedFiles: (request: ChangedFilesRequest) => ipcRenderer.invoke('changes:files', request),
   linkChanges: (request: ChangedFilesRequest & { elements: unknown[] }) =>
     ipcRenderer.invoke('changes:link', request),
+  overlayFolder: (repoPath: string, open?: boolean) =>
+    ipcRenderer.invoke('overlay:folder', { repoPath, open }),
 });

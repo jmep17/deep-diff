@@ -165,5 +165,6 @@ export function buildMockBridge(options: MockBridgeOptions = {}) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
       return report;
     },
+    overlayFolder: async (repoPath: string) => `${repoPath}/.deep-diff-overlay`,
   };
 }

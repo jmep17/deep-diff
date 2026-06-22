@@ -50,6 +50,9 @@ declare global {
         targetRef: string;
         elements: ChangeProbe[];
       }) => Promise<ChangeLinkResult[]>;
+      // Resolve (and create) the repo's overlay folder; open it in the OS file
+      // manager when `open` is true. Returns the absolute folder path.
+      overlayFolder: (repoPath: string, open?: boolean) => Promise<string>;
     };
   }
 
