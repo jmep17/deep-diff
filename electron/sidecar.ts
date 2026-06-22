@@ -16,18 +16,22 @@ let sidecarProcess: ChildProcessWithoutNullStreams | undefined;
 let status: SidecarStatus = { running: false };
 let cleanupWorktree: (() => Promise<void>) | undefined;
 let proxyServer: http.Server | undefined;
+// Live, mutable override map the running proxy reads on every request. Kept as
+// module state (not closed over at launch) so `setSidecarOverrides` can swap it
+// in place — that is what lets a toggle take effect without relaunching.
+let currentOverrides: EndpointOverrides = {};
 
 type PackageManager = 'npm' | 'pnpm' | 'yarn';
 
 function startProxyServer(
   targetPort: number,
-  overrides: EndpointOverrides,
+  getOverrides: () => EndpointOverrides,
 ): Promise<{ server: http.Server; port: number }> {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       const method = req.method ?? 'GET';
       const pathname = new URL(req.url ?? '/', 'http://127.0.0.1').pathname;
-      const mockBody = matchOverride(overrides, method, pathname);
+      const mockBody = matchOverride(getOverrides(), method, pathname);
 
       if (mockBody !== undefined) {
         const json = JSON.stringify(mockBody);
@@ -224,12 +228,12 @@ export async function launchSidecar(request: SidecarLaunchRequest) {
     shell: true,
   });
 
-  const overrides = request.endpointOverrides;
-  const hasOverrides = overrides !== undefined && Object.keys(overrides).length > 0;
+  currentOverrides = request.endpointOverrides ?? {};
+  const hasOverrides = Object.keys(currentOverrides).length > 0;
 
   let exposedUrl = `http://127.0.0.1:${port}`;
   if (hasOverrides) {
-    const proxy = await startProxyServer(port, overrides!);
+    const proxy = await startProxyServer(port, () => currentOverrides);
     proxyServer = proxy.server;
     exposedUrl = `http://127.0.0.1:${proxy.port}`;
   }
@@ -248,8 +252,41 @@ export async function launchSidecar(request: SidecarLaunchRequest) {
     status = { running: false };
     proxyServer?.close();
     proxyServer = undefined;
+    currentOverrides = {};
     void cleanupWorktree?.();
   });
+
+  return status;
+}
+
+/**
+ * Applies a new endpoint-override map to the ALREADY-RUNNING sidecar, without a
+ * relaunch. The proxy reads `currentOverrides` live on every request (see
+ * `startProxyServer`), so swapping it in place takes effect on the next fetch.
+ *
+ * If the sidecar was launched without overrides (raw server, no proxy) and the
+ * first override is now being applied, a proxy is brought up in front of the
+ * real server and `status.url` is repointed to it — the renderer then points
+ * the <webview> at the returned proxy URL. Once a proxy exists it is kept for
+ * the rest of the run: an empty map just makes every request pass through,
+ * which is how a mock is turned back "off" (the real response is restored).
+ */
+export async function setSidecarOverrides(overrides: EndpointOverrides) {
+  if (!sidecarProcess || sidecarProcess.killed || !status.running) {
+    throw new Error('No sidecar is running to apply mock overrides to.');
+  }
+
+  currentOverrides = overrides ?? {};
+  const hasOverrides = Object.keys(currentOverrides).length > 0;
+
+  if (!proxyServer && hasOverrides) {
+    if (status.port === undefined) {
+      throw new Error('Sidecar port is unknown; cannot start the mock proxy.');
+    }
+    const proxy = await startProxyServer(status.port, () => currentOverrides);
+    proxyServer = proxy.server;
+    status = { ...status, url: `http://127.0.0.1:${proxy.port}` };
+  }
 
   return status;
 }
@@ -262,6 +299,7 @@ export function stopSidecar() {
   sidecarProcess = undefined;
   proxyServer?.close();
   proxyServer = undefined;
+  currentOverrides = {};
   status = { running: false };
   return status;
 }
