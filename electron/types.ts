@@ -54,6 +54,9 @@ export interface SidecarLaunchRequest {
   branch?: string;
   command?: string;
   endpointOverrides?: EndpointOverrides;
+  // Absolute path to a per-repo overlay folder, resolved and set by the main process
+  // (never supplied by the renderer). Its contents are copied over the capture worktree.
+  overlayDir?: string;
 }
 
 export interface SidecarStatus {
@@ -79,6 +82,9 @@ export interface VisualDiffRequest {
   command?: string;
   mismatchTolerance?: number;
   endpointOverrides?: Record<string, Record<string, unknown>>;
+  // Absolute path to a per-repo overlay folder, resolved and set by the main process
+  // (never supplied by the renderer). Its contents are copied over each capture worktree.
+  overlayDir?: string;
 }
 
 export interface ChangedFilesRequest {

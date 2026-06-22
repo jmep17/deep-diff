@@ -9,6 +9,8 @@ import { promisify } from 'node:util';
 import { matchOverride, type EndpointOverrides } from './overrideMatcher.js';
 import { detectAuth0Config } from './authConfigDetector.js';
 import { installDependencies, type PackageManager } from './installDependencies.js';
+import { applyOverlay } from './repoOverlay.js';
+import { logInfo } from './logger.js';
 import type { SidecarLaunchRequest, SidecarStatus } from './types.js';
 
 const execFileAsync = promisify(execFile);
@@ -151,7 +153,7 @@ function safeName(value: string) {
   return value.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '');
 }
 
-async function prepareRuntimeRepository(repoPath: string, branch?: string) {
+async function prepareRuntimeRepository(repoPath: string, branch?: string, overlayDir?: string) {
   if (!branch) {
     return repoPath;
   }
@@ -201,8 +203,19 @@ async function prepareRuntimeRepository(repoPath: string, branch?: string) {
     cleanupWorktree = undefined;
   };
 
-  // A fresh worktree has no node_modules; install before the dev server is spawned.
   try {
+    // Apply the repo's overlay files (e.g. a vite.config that aliases an auth SDK to a
+    // mock) onto the worktree before install/spawn, so dependency and dev-server config
+    // changes take effect. Overlay is whole-file; only worktrees ever receive it.
+    const applied = await applyOverlay(worktreePath, overlayDir);
+    if (applied.length > 0) {
+      logInfo(
+        'sidecar:overlay',
+        `applied ${applied.length} file(s) to ${worktreePath}: ${applied.join(', ')}`,
+      );
+    }
+
+    // A fresh worktree has no node_modules; install before the dev server is spawned.
     const packageJson = JSON.parse(
       await fs.readFile(path.join(worktreePath, 'package.json'), 'utf8'),
     );
@@ -230,7 +243,11 @@ export async function launchSidecar(request: SidecarLaunchRequest) {
   }
 
   const port = await getFreePort();
-  const runtimeRepoPath = await prepareRuntimeRepository(request.repoPath, request.branch);
+  const runtimeRepoPath = await prepareRuntimeRepository(
+    request.repoPath,
+    request.branch,
+    request.overlayDir,
+  );
   const command = request.command?.trim() || (await inferDevCommand(runtimeRepoPath, port));
 
   const auth0Env = (await detectAuth0Config(runtimeRepoPath))

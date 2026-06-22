@@ -29,6 +29,8 @@
     "test:scenarios": "node scripts/test-scenario-repos.mjs",
     "test:sidecar-mocks": "node scripts/test-sidecar-mocks.mjs",
     "test:live-mocks": "node scripts/test-live-mock-update.mjs",
+    "test:repo-overlay": "node scripts/test-repo-overlay.mjs",
+    "test:auth-seam": "electron scripts/test-auth-mock-seam.cjs",
     "with-node": "bash scripts/with-node.sh",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

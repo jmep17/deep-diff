@@ -14,7 +14,7 @@ import {
   validateSidecarLaunchRequest,
   validateVisualDiffRequest,
 } from './ipcValidation.js';
-import { logError } from './logger.js';
+import { logError, logInfo } from './logger.js';
 import {
   fetchGitHubBranches,
   fetchGitHubRepositories,
@@ -23,9 +23,32 @@ import {
 } from './repositories.js';
 import { getSidecarStatus, launchSidecar, setSidecarOverrides, stopSidecar } from './sidecar.js';
 import { runVisualDiff } from './visualDiff.js';
+import { ensureOverlayScaffold } from './repoOverlay.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Root for per-repo overlay folders: test-only files Deep Diff copies over a capture
+// worktree (e.g. an auth-SDK mock alias). Overridable via env for tests/power users;
+// otherwise lives under the app's userData. Resolved here in the main process so the
+// core modules stay Electron-free and the renderer can't supply an arbitrary copy source.
+function overlaysRoot() {
+  return process.env.DEEP_DISH_OVERLAY_ROOT ?? path.join(app.getPath('userData'), 'overlays');
+}
+
+// Resolve (and scaffold + document) the repo's overlay folder. Overlays are opt-in
+// convenience, so a scaffold failure must not break an otherwise-fine launch/diff —
+// log and proceed without an overlay.
+async function resolveOverlayDir(repoPath: string): Promise<string | undefined> {
+  try {
+    const dir = await ensureOverlayScaffold(overlaysRoot(), repoPath);
+    logInfo('overlay:dir', `repo overlay folder: ${dir}`);
+    return dir;
+  } catch (err) {
+    logError('overlay:scaffold', err);
+    return undefined;
+  }
+}
 
 // Workspace directories explicitly chosen by the user via the open-dialog this session.
 // All repoPath values arriving over IPC must be at or under one of these roots.
@@ -188,6 +211,9 @@ app.whenReady().then(async () => {
 
   registerHandler('sidecar:launch', async (_event, raw) => {
     const request = await validateSidecarLaunchRequest(raw, authorizedRoots);
+    if (request.repoPath) {
+      request.overlayDir = await resolveOverlayDir(request.repoPath);
+    }
     return launchSidecar(request);
   });
 
@@ -204,6 +230,7 @@ app.whenReady().then(async () => {
 
   registerHandler('diff:run', async (_event, raw) => {
     const request = await validateVisualDiffRequest(raw, authorizedRoots);
+    request.overlayDir = await resolveOverlayDir(request.repoPath);
     return runVisualDiff(request);
   });
 

@@ -18,6 +18,7 @@ import { scanVisualRoutes, selectRoutes, type VisualRoute } from './routeDetecti
 import { matchOverride, type EndpointOverrides } from './overrideMatcher.js';
 import { detectAuth0Config } from './authConfigDetector.js';
 import { installDependencies, type PackageManager } from './installDependencies.js';
+import { applyOverlay } from './repoOverlay.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -135,7 +136,11 @@ function displayRef(ref: string) {
   return ref === workingTreeRef ? 'Working tree' : ref;
 }
 
-async function prepareRuntimeRepository(repoPath: string, ref: string): Promise<RuntimeRepository> {
+async function prepareRuntimeRepository(
+  repoPath: string,
+  ref: string,
+  overlayDir?: string,
+): Promise<RuntimeRepository> {
   if (ref === workingTreeRef) {
     return {
       path: repoPath,
@@ -173,8 +178,15 @@ async function prepareRuntimeRepository(repoPath: string, ref: string): Promise<
     });
   };
 
-  // A fresh worktree has no node_modules; install before the dev server is spawned.
   try {
+    // Apply the repo's overlay files (e.g. an auth-SDK mock alias) onto the worktree
+    // before install/spawn so config/dependency changes take effect. Whole-file copy;
+    // applied identically to base and target worktrees, so control routes stay identical.
+    const applied = await applyOverlay(worktreePath, overlayDir);
+    if (applied.length > 0)
+      trace(`overlay applied ${applied.length} file(s): ${applied.join(', ')}`);
+
+    // A fresh worktree has no node_modules; install before the dev server is spawned.
     const packageJson = JSON.parse(
       await fs.readFile(path.join(worktreePath, 'package.json'), 'utf8'),
     );
@@ -270,9 +282,10 @@ async function startServer(
   repoPath: string,
   ref: string,
   commandOverride?: string,
+  overlayDir?: string,
 ): Promise<RunningServer> {
   trace(`startServer begin ${ref}`);
-  const runtime = await prepareRuntimeRepository(repoPath, ref);
+  const runtime = await prepareRuntimeRepository(repoPath, ref, overlayDir);
   trace(`startServer runtime ${runtime.path}`);
   const port = await getFreePort();
   const command = commandOverride?.trim() || (await inferDevCommand(runtime.path, port));
@@ -444,11 +457,21 @@ export async function runVisualDiff(request: VisualDiffRequest): Promise<VisualD
   trace(`runVisualDiff routes scanned ${allRoutes.length}`);
   const routes = selectRoutes(allRoutes, request.routes);
   trace(`runVisualDiff routes selected ${routes.length}`);
-  const baseServer = await startServer(request.repoPath, request.baseRef, request.command);
+  const baseServer = await startServer(
+    request.repoPath,
+    request.baseRef,
+    request.command,
+    request.overlayDir,
+  );
   let targetServer: RunningServer | undefined;
 
   try {
-    targetServer = await startServer(request.repoPath, request.targetRef, request.command);
+    targetServer = await startServer(
+      request.repoPath,
+      request.targetRef,
+      request.command,
+      request.overlayDir,
+    );
     trace('runVisualDiff servers ready');
     const routeReports: VisualDiffRouteReport[] = [];
     const captureWindow = createCaptureWindow(viewport);
