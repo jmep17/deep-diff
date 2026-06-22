@@ -94,6 +94,53 @@ async function createWindow() {
   });
 
   const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+
+  // --- Renderer hardening (defense-in-depth) ---------------------------------
+  // The renderer is a single-page React app that never legitimately opens a new
+  // window or navigates away from its own origin. Deny both by default so that
+  // injected/compromised content cannot pivot to an external page or popup.
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
+  // Allow same-origin navigations only (covers Vite HMR full reloads in dev).
+  const appOrigin = devServerUrl ? new URL(devServerUrl).origin : null;
+  const isSameOrigin = (url: string): boolean => {
+    if (appOrigin === null) return false;
+    try {
+      return new URL(url).origin === appOrigin;
+    } catch {
+      return false;
+    }
+  };
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!isSameOrigin(url)) event.preventDefault();
+  });
+
+  // Enforce hardened webPreferences on the sidecar-preview <webview> at the
+  // main-process layer, independent of the renderer markup, and confine the
+  // guest to local sidecar URLs (the only thing it should ever embed).
+  const hostnameOf = (url: string): string => {
+    try {
+      return new URL(url).hostname;
+    } catch {
+      return '';
+    }
+  };
+  mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    delete webPreferences.preload;
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+    webPreferences.sandbox = true;
+
+    // Block only a real external host. An empty/about:blank src (host '') can
+    // fire at attach time before the renderer sets src={sidecar.url}; failing
+    // closed there would silently break the live preview, so let it through —
+    // the webPreferences enforcement above is the load-bearing protection.
+    const host = hostnameOf(params.src);
+    if (host && host !== '127.0.0.1' && host !== 'localhost') {
+      event.preventDefault();
+    }
+  });
+
   if (devServerUrl) {
     await loadDevServer(mainWindow, devServerUrl);
     mainWindow.webContents.openDevTools({ mode: 'detach' });

@@ -335,18 +335,27 @@ async function capturePage(
 }
 
 function createCaptureWindow(viewport: VisualDiffViewport) {
-  return new BrowserWindow({
+  const window = new BrowserWindow({
     show: false,
     width: viewport.width,
     height: viewport.height,
     paintWhenInitiallyHidden: true,
     webPreferences: {
+      // Dedicated, in-memory partition so the http interception in runVisualDiff
+      // (session.protocol.handle) is scoped to THIS window's session and never
+      // touches the app's default session or the main window's network.
+      partition: 'visual-diff-capture',
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      // Untrusted target-repo pages render here; keep them OS-sandboxed so a
+      // Chromium exploit in captured content is contained.
+      sandbox: true,
       backgroundThrottling: false,
     },
   });
+  // Captured pages are untrusted repo output — never let them spawn windows.
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  return window;
 }
 
 function buildDiffImage(before: CapturedPage, after: CapturedPage) {
