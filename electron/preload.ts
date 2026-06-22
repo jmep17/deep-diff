@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
+  ChangedFilesRequest,
   GitHubBranchRequest,
   GitHubRepositoryRequest,
   SidecarLaunchRequest,
@@ -17,5 +18,10 @@ contextBridge.exposeInMainWorld('deepDiff', {
   launchSidecar: (request: SidecarLaunchRequest) => ipcRenderer.invoke('sidecar:launch', request),
   stopSidecar: () => ipcRenderer.invoke('sidecar:stop'),
   getSidecarStatus: () => ipcRenderer.invoke('sidecar:status'),
+  setSidecarOverrides: (overrides: Record<string, Record<string, unknown>>) =>
+    ipcRenderer.invoke('sidecar:setOverrides', overrides),
   runVisualDiff: (request: VisualDiffRequest) => ipcRenderer.invoke('diff:run', request),
+  getChangedFiles: (request: ChangedFilesRequest) => ipcRenderer.invoke('changes:files', request),
+  linkChanges: (request: ChangedFilesRequest & { elements: unknown[] }) =>
+    ipcRenderer.invoke('changes:link', request),
 });

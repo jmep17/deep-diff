@@ -13,6 +13,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type {
+  ChangedFilesRequest,
   GitHubBranchRequest,
   GitHubRepositoryRequest,
   SidecarLaunchRequest,
@@ -135,6 +136,21 @@ function optionalString(value: unknown, field: string): string | undefined {
   return requireNonEmptyString(value, field);
 }
 
+/**
+ * Validates an endpoint-overrides map: a plain object whose keys are
+ * "METHOD:path" strings and whose values are plain objects (body-only
+ * replacement JSON). Returns a fresh, shape-checked copy. Shared by the
+ * sidecar-launch, visual-diff, and live `sidecar:setOverrides` handlers.
+ */
+export function validateEndpointOverrides(raw: unknown): Record<string, Record<string, unknown>> {
+  const outer = assertPlainObject(raw, 'endpointOverrides');
+  const overrides: Record<string, Record<string, unknown>> = {};
+  for (const [key, body] of Object.entries(outer)) {
+    overrides[key] = assertPlainObject(body, `endpointOverrides["${key}"]`);
+  }
+  return overrides;
+}
+
 export function validateGitHubRepositoryRequest(raw: unknown): GitHubRepositoryRequest {
   const obj = assertPlainObject(raw, 'github:listRepos request');
   return {
@@ -161,14 +177,10 @@ export async function validateSidecarLaunchRequest(
   const branch = obj.branch !== undefined ? assertGitRef(obj.branch, 'branch') : undefined;
   const command = obj.command !== undefined ? assertSafeCommand(obj.command) : undefined;
 
-  let endpointOverrides: Record<string, Record<string, unknown>> | undefined;
-  if (obj.endpointOverrides !== undefined) {
-    const outer = assertPlainObject(obj.endpointOverrides, 'endpointOverrides');
-    endpointOverrides = {};
-    for (const [key, body] of Object.entries(outer)) {
-      endpointOverrides[key] = assertPlainObject(body, `endpointOverrides["${key}"]`);
-    }
-  }
+  const endpointOverrides =
+    obj.endpointOverrides !== undefined
+      ? validateEndpointOverrides(obj.endpointOverrides)
+      : undefined;
 
   return { repoPath, branch, command, endpointOverrides };
 }
@@ -219,14 +231,10 @@ export async function validateVisualDiffRequest(
 
   // endpointOverrides: optional plain object whose values are plain objects
   // (outer key = "METHOD:path", inner value = body-only replacement JSON)
-  let endpointOverrides: Record<string, Record<string, unknown>> | undefined;
-  if (obj.endpointOverrides !== undefined) {
-    const outer = assertPlainObject(obj.endpointOverrides, 'endpointOverrides');
-    endpointOverrides = {};
-    for (const [key, body] of Object.entries(outer)) {
-      endpointOverrides[key] = assertPlainObject(body, `endpointOverrides["${key}"]`);
-    }
-  }
+  const endpointOverrides =
+    obj.endpointOverrides !== undefined
+      ? validateEndpointOverrides(obj.endpointOverrides)
+      : undefined;
 
   return {
     repoPath,
@@ -238,4 +246,65 @@ export async function validateVisualDiffRequest(
     routes,
     endpointOverrides,
   };
+}
+
+/**
+ * Validates a `changes:files` request: authorized repo path + two safe git refs
+ * (each may be the working-tree sentinel "__working_tree__").
+ */
+export async function validateChangedFilesRequest(
+  raw: unknown,
+  roots: ReadonlySet<string>,
+): Promise<ChangedFilesRequest> {
+  const obj = assertPlainObject(raw, 'changes:files request');
+  const repoPath = await assertAuthorizedRepoPath(obj.repoPath, roots);
+  const baseRef = assertGitRef(obj.baseRef, 'baseRef');
+  const targetRef = assertGitRef(obj.targetRef, 'targetRef');
+  return { repoPath, baseRef, targetRef };
+}
+
+export interface ChangeLinkRequest extends ChangedFilesRequest {
+  elements: {
+    id: string;
+    sourcePath: string;
+    rect?: { x: number; y: number; width: number; height: number };
+    tag?: string;
+  }[];
+}
+
+const finiteOrZero = (value: unknown): number =>
+  typeof value === 'number' && isFinite(value) ? value : 0;
+
+/**
+ * Validates a `changes:link` request: an authorized repo path + two safe git
+ * refs, plus a sanitized list of probed DOM elements (id/sourcePath/rect/tag).
+ * The element list comes from untrusted page DOM, so it is capped and coerced
+ * to known shapes — it is only ever used for string path matching, never fs/exec.
+ */
+export async function validateChangeLinkRequest(
+  raw: unknown,
+  roots: ReadonlySet<string>,
+): Promise<ChangeLinkRequest> {
+  const base = await validateChangedFilesRequest(raw, roots);
+  const obj = assertPlainObject(raw, 'changes:link request');
+  const rawElements = Array.isArray(obj.elements) ? obj.elements : [];
+  const elements = rawElements.slice(0, 5000).map((entry, index) => {
+    const el = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : {};
+    const rawRect =
+      el.rect && typeof el.rect === 'object' ? (el.rect as Record<string, unknown>) : undefined;
+    return {
+      id: typeof el.id === 'string' ? el.id : `el${index}`,
+      sourcePath: typeof el.sourcePath === 'string' ? el.sourcePath : '',
+      rect: rawRect
+        ? {
+            x: finiteOrZero(rawRect.x),
+            y: finiteOrZero(rawRect.y),
+            width: finiteOrZero(rawRect.width),
+            height: finiteOrZero(rawRect.height),
+          }
+        : undefined,
+      tag: typeof el.tag === 'string' ? el.tag : undefined,
+    };
+  });
+  return { ...base, elements };
 }

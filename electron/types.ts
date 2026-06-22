@@ -81,6 +81,12 @@ export interface VisualDiffRequest {
   endpointOverrides?: Record<string, Record<string, unknown>>;
 }
 
+export interface ChangedFilesRequest {
+  repoPath: string;
+  baseRef: string;
+  targetRef: string;
+}
+
 export interface VisualDiffRouteReport {
   id: string;
   path: string;
