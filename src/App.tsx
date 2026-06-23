@@ -1329,6 +1329,7 @@ function MockProfiles({
                   'profile-row',
                   `profile-${profile.color}`,
                   profile.enabled && 'enabled',
+                  canExpand && 'expandable',
                 )}
               >
                 <div className="profile-icon">

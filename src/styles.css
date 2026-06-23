@@ -518,7 +518,7 @@ select {
 
 .profile-row {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto auto;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   min-height: 56px;
@@ -526,6 +526,10 @@ select {
   border-radius: var(--radius);
   padding: 8px;
   background: var(--mozzarella);
+}
+
+.profile-row.expandable {
+  grid-template-columns: 34px minmax(0, 1fr) auto auto;
 }
 
 .profile-block {
