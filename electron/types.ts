@@ -1,4 +1,9 @@
 import type { EndpointOverrides } from './overrideMatcher.js';
+import type { LogServer, LogSource, LogStream, ServerLogEntry } from './serverLogs.js';
+
+// Re-exported so the shared log shapes have a single source of truth in the main
+// process (the renderer mirrors them independently in src/lib/types.ts).
+export type { LogServer, LogSource, LogStream, ServerLogEntry };
 
 export type RepositorySource = 'local' | 'github';
 
@@ -66,6 +71,8 @@ export interface SidecarStatus {
   pid?: number;
   command?: string;
   startedAt?: string;
+  /** Absolute path to this launch's full log file (server stdout/stderr + page console). */
+  logFile?: string;
 }
 
 export interface VisualDiffViewport {
@@ -119,4 +126,8 @@ export interface VisualDiffReport {
   routes: VisualDiffRouteReport[];
   changedRoutes: number;
   totalRoutes: number;
+  /** Absolute path to this run's full log file (both servers' output + page console). */
+  logFile?: string;
+  /** Bounded snapshot of captured log entries for this run (the file is the full record). */
+  logs?: ServerLogEntry[];
 }

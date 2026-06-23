@@ -45,6 +45,22 @@ export interface MockProfile {
   endpointOverrides: Record<string, Record<string, unknown>>;
 }
 
+// Shared log shapes — mirror of electron/serverLogs.ts (the two processes have
+// separate compiler configs and can't import across the main/renderer boundary).
+export type LogSource = 'diff' | 'sidecar';
+export type LogServer = 'base' | 'target' | 'sidecar';
+export type LogStream = 'stdout' | 'stderr' | 'console' | 'install' | 'system';
+
+export interface ServerLogEntry {
+  runId: string;
+  source: LogSource;
+  server: LogServer;
+  stream: LogStream;
+  level?: string;
+  ts: number;
+  text: string;
+}
+
 export interface SidecarStatus {
   running: boolean;
   url?: string;
@@ -52,6 +68,8 @@ export interface SidecarStatus {
   pid?: number;
   command?: string;
   startedAt?: string;
+  /** Absolute path to this launch's full log file (server stdout/stderr + page console). */
+  logFile?: string;
 }
 
 export type DiffStatus = 'idle' | 'running' | 'passed' | 'failed';
@@ -124,4 +142,8 @@ export interface VisualDiffReport {
   routes: VisualDiffRouteReport[];
   changedRoutes: number;
   totalRoutes: number;
+  /** Absolute path to this run's full log file (both servers' output + page console). */
+  logFile?: string;
+  /** Bounded snapshot of captured log entries for this run (the file is the full record). */
+  logs?: ServerLogEntry[];
 }

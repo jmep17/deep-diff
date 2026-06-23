@@ -36,7 +36,9 @@ import {
   StopCircle,
   TerminalSquare,
   ToggleRight,
+  Trash2,
   WandSparkles,
+  X,
   Zap,
 } from 'lucide-react';
 import {
@@ -54,6 +56,7 @@ import type {
   EndpointDefinition,
   MockProfile,
   RepositorySummary,
+  ServerLogEntry,
   SidecarStatus,
   VisualDiffReport,
   VisualDiffRouteReport,
@@ -130,6 +133,141 @@ function formatMismatch(value: number) {
   return `${(value * 100).toFixed(value < 0.01 ? 3 : 2)}%`;
 }
 
+// Map an Electron <webview> console-message level (0-3) to a stable name.
+function webviewConsoleLevel(level?: number): string {
+  if (level === 3) return 'error';
+  if (level === 2) return 'warning';
+  if (level === 1) return 'info';
+  return 'log';
+}
+
+// Bottom drawer that shows captured dev-server output + rendered-page console,
+// streamed from the main process. Lines are tagged by server (base / target /
+// sidecar) and stream (stdout / stderr / console / install / system).
+function LogDrawer({
+  entries,
+  open,
+  onClose,
+  onClear,
+  revealFile,
+}: {
+  entries: ServerLogEntry[];
+  open: boolean;
+  onClose: () => void;
+  onClear: () => void;
+  revealFile?: string;
+}) {
+  const [filter, setFilter] = useState<'all' | 'base' | 'target' | 'sidecar' | 'errors'>('all');
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const stick = useRef(true);
+
+  const isError = (entry: ServerLogEntry) => entry.stream === 'stderr' || entry.level === 'error';
+
+  const visible = useMemo(
+    () =>
+      entries.filter((entry) => {
+        if (filter === 'all') return true;
+        if (filter === 'errors') return isError(entry);
+        return entry.server === filter;
+      }),
+    [entries, filter],
+  );
+
+  // Keep the newest line in view, but only when the user is already at the bottom.
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (el && stick.current) el.scrollTop = el.scrollHeight;
+  }, [visible, open]);
+
+  if (!open) return null;
+
+  const errorCount = entries.filter(isError).length;
+  const chips: { key: typeof filter; label: string }[] = [
+    { key: 'all', label: `All ${entries.length}` },
+    { key: 'base', label: 'Base' },
+    { key: 'target', label: 'Target' },
+    { key: 'sidecar', label: 'Sidecar' },
+    { key: 'errors', label: `Errors ${errorCount}` },
+  ];
+
+  return (
+    <section className="log-drawer">
+      <header className="log-drawer-head">
+        <div className="log-drawer-title">
+          <TerminalSquare size={15} />
+          <strong>Server &amp; page logs</strong>
+        </div>
+        <div className="log-filters">
+          {chips.map((chip) => (
+            <button
+              key={chip.key}
+              type="button"
+              className={cx('log-filter', filter === chip.key && 'active')}
+              onClick={() => setFilter(chip.key)}
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
+        <div className="log-drawer-actions">
+          {revealFile && bridge?.revealLog && (
+            <button
+              type="button"
+              className="ghost-button"
+              title={revealFile}
+              onClick={() => bridge.revealLog?.(revealFile).catch(() => undefined)}
+            >
+              <FolderOpen size={14} />
+              Reveal file
+            </button>
+          )}
+          <button type="button" className="ghost-button" onClick={onClear}>
+            <Trash2 size={14} />
+            Clear
+          </button>
+          <button type="button" className="icon-button" aria-label="Close logs" onClick={onClose}>
+            <X size={15} />
+          </button>
+        </div>
+      </header>
+      <div
+        className="log-drawer-body"
+        ref={bodyRef}
+        onScroll={(event) => {
+          const el = event.currentTarget;
+          stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+        }}
+      >
+        {visible.length === 0 ? (
+          <p className="log-empty">No logs yet. Launch the sidecar or run a visual diff.</p>
+        ) : (
+          visible.map((entry, index) => (
+            <div
+              key={`${entry.ts}-${index}`}
+              className={cx(
+                'log-line',
+                isError(entry) && 'is-error',
+                entry.stream === 'system' && 'is-system',
+                entry.level === 'warning' && 'is-warn',
+              )}
+            >
+              <span className="log-time">
+                {new Date(entry.ts).toLocaleTimeString([], { hour12: false })}
+              </span>
+              <span className={cx('log-tag', `tag-${entry.server}`)}>{entry.server}</span>
+              <span className="log-stream">
+                {entry.stream}
+                {entry.level ? `:${entry.level}` : ''}
+              </span>
+              <span className="log-text">{entry.text}</span>
+            </div>
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
 function App() {
   const [sourceMode, setSourceMode] = useState<'local' | 'github'>('local');
   const [workspacePath, setWorkspacePath] = useState('No workspace selected');
@@ -160,6 +298,22 @@ function App() {
   const [viewport, setViewport] = useState({ width: 1280, height: 900 });
   const [activeNav, setActiveNav] = useState('Compare');
   const [reports, setReports] = useState<VisualDiffReport[]>([]);
+  // Streamed dev-server output + rendered-page console (sidecar + visual diff),
+  // for the bottom log drawer. The full record lives in per-run files on disk;
+  // this in-memory buffer is capped for render performance.
+  const [logEntries, setLogEntries] = useState<ServerLogEntry[]>([]);
+  const [logsOpen, setLogsOpen] = useState(false);
+
+  useEffect(() => {
+    if (!bridge?.onServerLog) return;
+    return bridge.onServerLog((entry) => {
+      setLogEntries((prev) => {
+        const next = prev.length >= 3000 ? prev.slice(prev.length - 2999) : prev.slice();
+        next.push(entry);
+        return next;
+      });
+    });
+  }, []);
 
   const filteredEndpoints = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -363,6 +517,9 @@ function App() {
     } catch (error) {
       setDiffStatus('failed');
       setMessage(error instanceof Error ? error.message : 'Visual diff failed.');
+      // A diff failure is usually a dev server that never came up — surface the
+      // captured output so the cause is visible.
+      setLogsOpen(true);
     } finally {
       setBusy(null);
     }
@@ -381,6 +538,7 @@ function App() {
         setMessage(`Sidecar running at ${nextStatus.url}.`);
       } catch (error) {
         setMessage(error instanceof Error ? error.message : 'Sidecar launch failed.');
+        setLogsOpen(true);
       } finally {
         setBusy(null);
       }
@@ -534,6 +692,24 @@ function App() {
                 Overlay folder
               </button>
             )}
+            <button
+              className={cx('ghost-button', logsOpen && 'active')}
+              type="button"
+              onClick={() => setLogsOpen((value) => !value)}
+              title="Show captured dev-server output and page console"
+            >
+              <TerminalSquare size={16} />
+              Logs
+              {logEntries.some((entry) => entry.stream === 'stderr' || entry.level === 'error') && (
+                <span className="logs-badge">
+                  {
+                    logEntries.filter(
+                      (entry) => entry.stream === 'stderr' || entry.level === 'error',
+                    ).length
+                  }
+                </span>
+              )}
+            </button>
           </div>
         </header>
 
@@ -679,6 +855,14 @@ function App() {
           />
         )}
       </main>
+
+      <LogDrawer
+        entries={logEntries}
+        open={logsOpen}
+        onClose={() => setLogsOpen(false)}
+        onClear={() => setLogEntries([])}
+        revealFile={diffReport?.logFile ?? sidecar.logFile}
+      />
     </div>
   );
 }
@@ -1377,12 +1561,24 @@ function SidecarPanel({
       setPreviewLoaded(true);
     };
 
+    // Forward the preview page's browser console into the run log (the page lives
+    // in this <webview>, so its console can't be captured in the main process the
+    // way the visual-diff capture window's is).
+    const onConsole = (event: Event) => {
+      const e = event as unknown as { level?: number; message?: string };
+      bridge
+        ?.appendLog?.({ text: String(e.message ?? ''), level: webviewConsoleLevel(e.level) })
+        ?.catch(() => undefined);
+    };
+
+    el.addEventListener('console-message', onConsole as EventListener);
     el.addEventListener('did-start-loading', onStart);
     el.addEventListener('did-fail-load', onFail as EventListener);
     el.addEventListener('did-stop-loading', onStop);
     return () => {
       window.clearTimeout(retryTimer);
       window.clearTimeout(revealFallback);
+      el.removeEventListener('console-message', onConsole as EventListener);
       el.removeEventListener('did-start-loading', onStart);
       el.removeEventListener('did-fail-load', onFail as EventListener);
       el.removeEventListener('did-stop-loading', onStop);

@@ -20,14 +20,20 @@ async function fileExists(filePath: string) {
   );
 }
 
-function runInstall(command: string, cwd: string): Promise<{ ok: boolean; output: string }> {
+function runInstall(
+  command: string,
+  cwd: string,
+  onData?: (text: string) => void,
+): Promise<{ ok: boolean; output: string }> {
   return new Promise((resolve) => {
     // shell:true + inherited env so the package manager resolves on PATH exactly the
     // way the dev-server spawn resolves it (same mechanism, same resolution).
     const child = spawn(command, { cwd, env: process.env, shell: true });
     const chunks: string[] = [];
     const capture = (buf: Buffer) => {
-      chunks.push(buf.toString('utf8'));
+      const text = buf.toString('utf8');
+      onData?.(text); // stream live to the run log when a sink is wired
+      chunks.push(text);
       if (chunks.length > 400) chunks.splice(0, chunks.length - 400);
     };
     child.stdout?.on('data', capture);
@@ -49,6 +55,7 @@ function runInstall(command: string, cwd: string): Promise<{ ok: boolean; output
 export async function installDependencies(
   repoPath: string,
   packageManager: PackageManager,
+  onData?: (text: string) => void,
 ): Promise<void> {
   let packageJson: { dependencies?: unknown; devDependencies?: unknown };
   try {
@@ -66,10 +73,10 @@ export async function installDependencies(
 
   const { frozen, fallback } = installCommands[packageManager];
 
-  const frozenResult = await runInstall(frozen, repoPath);
+  const frozenResult = await runInstall(frozen, repoPath, onData);
   if (frozenResult.ok) return;
 
-  const fallbackResult = await runInstall(fallback, repoPath);
+  const fallbackResult = await runInstall(fallback, repoPath, onData);
   if (fallbackResult.ok) return;
 
   const tail = fallbackResult.output.split('\n').slice(-15).join('\n');

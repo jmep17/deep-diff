@@ -1,8 +1,9 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type {
   ChangedFilesRequest,
   GitHubBranchRequest,
   GitHubRepositoryRequest,
+  ServerLogEntry,
   SidecarLaunchRequest,
   VisualDiffRequest,
 } from './types.js';
@@ -26,4 +27,14 @@ contextBridge.exposeInMainWorld('deepDiff', {
     ipcRenderer.invoke('changes:link', request),
   overlayFolder: (repoPath: string, open?: boolean) =>
     ipcRenderer.invoke('overlay:folder', { repoPath, open }),
+  // Subscribe to streamed server/page log lines. Returns an unsubscribe fn.
+  onServerLog: (callback: (entry: ServerLogEntry) => void) => {
+    const handler = (_event: IpcRendererEvent, entry: ServerLogEntry) => callback(entry);
+    ipcRenderer.on('logs:event', handler);
+    return () => ipcRenderer.off('logs:event', handler);
+  },
+  // Forward a sidecar preview-page console message into the run log.
+  appendLog: (entry: { text: string; level?: string }) => ipcRenderer.invoke('logs:append', entry),
+  // Reveal a run's log file in the OS file manager.
+  revealLog: (file: string) => ipcRenderer.invoke('logs:reveal', { file }),
 });

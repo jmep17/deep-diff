@@ -308,3 +308,24 @@ export async function validateChangeLinkRequest(
   });
   return { ...base, elements };
 }
+
+/**
+ * Validates a `logs:append` payload from the renderer (a browser-console message
+ * from the live sidecar preview <webview>). Shape only — `text` originates from
+ * untrusted page output, so it is coerced and truncated rather than rejected.
+ */
+export function validateLogAppend(raw: unknown): { text: string; level?: string } {
+  const obj = assertPlainObject(raw, 'logs:append request');
+  const text = (typeof obj.text === 'string' ? obj.text : '').slice(0, 8192);
+  const level = typeof obj.level === 'string' ? obj.level.slice(0, 32) : undefined;
+  return { text, level };
+}
+
+/**
+ * Validates a `logs:reveal` payload. Returns the requested file path; the handler
+ * enforces that it resolves to a file inside the log directory before revealing it.
+ */
+export function validateLogReveal(raw: unknown): string {
+  const obj = assertPlainObject(raw, 'logs:reveal request');
+  return requireNonEmptyString(obj.file, 'file');
+}

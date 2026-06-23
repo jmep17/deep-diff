@@ -11,6 +11,7 @@ import { detectAuth0Config } from './authConfigDetector.js';
 import { installDependencies, type PackageManager } from './installDependencies.js';
 import { applyOverlay } from './repoOverlay.js';
 import { logInfo } from './logger.js';
+import { LogSink } from './serverLogs.js';
 import type { SidecarLaunchRequest, SidecarStatus } from './types.js';
 
 const execFileAsync = promisify(execFile);
@@ -23,6 +24,10 @@ let proxyServer: http.Server | undefined;
 // module state (not closed over at launch) so `setSidecarOverrides` can swap it
 // in place — that is what lets a toggle take effect without relaunching.
 let currentOverrides: EndpointOverrides = {};
+// Captures the live sidecar's stdout/stderr + dependency install output, plus the
+// preview page's browser console (forwarded from the renderer webview via
+// appendSidecarConsole). Created per launch; closed and cleared on process exit.
+let logSink: LogSink | undefined;
 
 function startProxyServer(
   targetPort: number,
@@ -153,7 +158,12 @@ function safeName(value: string) {
   return value.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '');
 }
 
-async function prepareRuntimeRepository(repoPath: string, branch?: string, overlayDir?: string) {
+async function prepareRuntimeRepository(
+  repoPath: string,
+  branch?: string,
+  overlayDir?: string,
+  onInstallData?: (text: string) => void,
+) {
   if (!branch) {
     return repoPath;
   }
@@ -220,7 +230,7 @@ async function prepareRuntimeRepository(repoPath: string, branch?: string, overl
       await fs.readFile(path.join(worktreePath, 'package.json'), 'utf8'),
     );
     const packageManager: PackageManager = await inferPackageManager(worktreePath, packageJson);
-    await installDependencies(worktreePath, packageManager);
+    await installDependencies(worktreePath, packageManager, onInstallData);
   } catch (error) {
     await cleanupWorktree?.();
     throw error;
@@ -243,58 +253,102 @@ export async function launchSidecar(request: SidecarLaunchRequest) {
   }
 
   const port = await getFreePort();
-  const runtimeRepoPath = await prepareRuntimeRepository(
-    request.repoPath,
-    request.branch,
-    request.overlayDir,
-  );
-  const command = request.command?.trim() || (await inferDevCommand(runtimeRepoPath, port));
+  const runId = Date.now().toString();
+  logSink = new LogSink(runId, 'sidecar', `sidecar-${runId}.log`);
+  const sink = logSink;
 
-  const auth0Env = (await detectAuth0Config(runtimeRepoPath))
-    ? { AUTH0_BASE_URL: `http://localhost:${port}`, APP_BASE_URL: `http://localhost:${port}` }
-    : {};
+  try {
+    const runtimeRepoPath = await prepareRuntimeRepository(
+      request.repoPath,
+      request.branch,
+      request.overlayDir,
+      (text) => sink.append('sidecar', 'install', text),
+    );
+    const command = request.command?.trim() || (await inferDevCommand(runtimeRepoPath, port));
 
-  sidecarProcess = spawn(command, {
-    cwd: runtimeRepoPath,
-    env: {
-      ...process.env,
-      PORT: String(port),
-      VITE_PORT: String(port),
-      DEEP_DISH_DIFF_BRANCH: request.branch ?? '',
-      ...auth0Env,
-    },
-    shell: true,
-  });
+    const auth0Env = (await detectAuth0Config(runtimeRepoPath))
+      ? { AUTH0_BASE_URL: `http://localhost:${port}`, APP_BASE_URL: `http://localhost:${port}` }
+      : {};
 
-  currentOverrides = request.endpointOverrides ?? {};
-  const hasOverrides = Object.keys(currentOverrides).length > 0;
+    sink.system(
+      'sidecar',
+      `launching: ${command} (port ${port}, ref ${request.branch ?? 'current'})`,
+    );
 
-  let exposedUrl = `http://127.0.0.1:${port}`;
-  if (hasOverrides) {
-    const proxy = await startProxyServer(port, () => currentOverrides);
-    proxyServer = proxy.server;
-    exposedUrl = `http://127.0.0.1:${proxy.port}`;
+    sidecarProcess = spawn(command, {
+      cwd: runtimeRepoPath,
+      env: {
+        ...process.env,
+        PORT: String(port),
+        VITE_PORT: String(port),
+        DEEP_DISH_DIFF_BRANCH: request.branch ?? '',
+        ...auth0Env,
+      },
+      shell: true,
+    });
+
+    // Capture the dev server's full terminal output. `shell:true` keeps the
+    // grandchild (node server.mjs) output flowing through these piped streams.
+    sidecarProcess.stdout.on('data', (chunk: Buffer) =>
+      sink.append('sidecar', 'stdout', chunk.toString('utf8')),
+    );
+    sidecarProcess.stderr.on('data', (chunk: Buffer) =>
+      sink.append('sidecar', 'stderr', chunk.toString('utf8')),
+    );
+
+    currentOverrides = request.endpointOverrides ?? {};
+    const hasOverrides = Object.keys(currentOverrides).length > 0;
+
+    let exposedUrl = `http://127.0.0.1:${port}`;
+    if (hasOverrides) {
+      const proxy = await startProxyServer(port, () => currentOverrides);
+      proxyServer = proxy.server;
+      exposedUrl = `http://127.0.0.1:${proxy.port}`;
+    }
+
+    status = {
+      running: true,
+      url: exposedUrl,
+      port,
+      pid: sidecarProcess.pid,
+      command,
+      startedAt: new Date().toISOString(),
+      logFile: sink.file,
+    };
+
+    sidecarProcess.once('exit', (code) => {
+      sink.system('sidecar', `process exited (code ${code ?? 'null'})`);
+      sink.close();
+      if (logSink === sink) logSink = undefined;
+      sidecarProcess = undefined;
+      status = { running: false };
+      proxyServer?.close();
+      proxyServer = undefined;
+      currentOverrides = {};
+      void cleanupWorktree?.();
+    });
+
+    return status;
+  } catch (error) {
+    // Launch failed (worktree/install/spawn). The captured output is the most
+    // useful thing here — flush it and point the caller at the log file.
+    const message = error instanceof Error ? error.message : String(error);
+    sink.system('sidecar', `launch failed: ${message}`);
+    sink.close();
+    if (logSink === sink) logSink = undefined;
+    throw new Error(`${message} (logs: ${sink.file})`, { cause: error });
   }
+}
 
-  status = {
-    running: true,
-    url: exposedUrl,
-    port,
-    pid: sidecarProcess.pid,
-    command,
-    startedAt: new Date().toISOString(),
-  };
-
-  sidecarProcess.once('exit', () => {
-    sidecarProcess = undefined;
-    status = { running: false };
-    proxyServer?.close();
-    proxyServer = undefined;
-    currentOverrides = {};
-    void cleanupWorktree?.();
-  });
-
-  return status;
+/**
+ * Append a browser-console message from the live sidecar preview page into the
+ * current launch's log. Called by the `logs:append` IPC handler, which receives
+ * console events from the renderer `<webview>` (the preview page lives in the
+ * renderer, not the main process, so its console can't be captured here directly).
+ * A no-op when no sidecar is running.
+ */
+export function appendSidecarConsole(text: string, level?: string): void {
+  logSink?.append('sidecar', 'console', text, level);
 }
 
 /**

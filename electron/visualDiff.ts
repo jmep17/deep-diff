@@ -19,6 +19,7 @@ import { matchOverride, type EndpointOverrides } from './overrideMatcher.js';
 import { detectAuth0Config } from './authConfigDetector.js';
 import { installDependencies, type PackageManager } from './installDependencies.js';
 import { applyOverlay } from './repoOverlay.js';
+import { attachConsoleCapture, LogSink, type LogServer } from './serverLogs.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -49,7 +50,6 @@ interface RunningServer {
   command: string;
   process: ChildProcessWithoutNullStreams;
   cleanup: () => Promise<void>;
-  logs: string[];
 }
 
 interface CapturedPage {
@@ -140,6 +140,7 @@ async function prepareRuntimeRepository(
   repoPath: string,
   ref: string,
   overlayDir?: string,
+  onInstallData?: (text: string) => void,
 ): Promise<RuntimeRepository> {
   if (ref === workingTreeRef) {
     return {
@@ -191,7 +192,7 @@ async function prepareRuntimeRepository(
       await fs.readFile(path.join(worktreePath, 'package.json'), 'utf8'),
     );
     const packageManager: PackageManager = await inferPackageManager(worktreePath, packageJson);
-    await installDependencies(worktreePath, packageManager);
+    await installDependencies(worktreePath, packageManager, onInstallData);
   } catch (error) {
     await cleanup();
     throw error;
@@ -201,13 +202,6 @@ async function prepareRuntimeRepository(
     path: worktreePath,
     cleanup,
   };
-}
-
-function appendLog(logs: string[], value: Buffer) {
-  const next = value.toString('utf8').trim();
-  if (!next) return;
-  logs.push(next);
-  if (logs.length > 20) logs.splice(0, logs.length - 20);
 }
 
 async function stopProcess(child: ChildProcessWithoutNullStreams) {
@@ -226,10 +220,22 @@ async function stopProcess(child: ChildProcessWithoutNullStreams) {
 function waitForHttpReady(
   url: string,
   child: ChildProcessWithoutNullStreams,
-  logs: string[],
+  sink: LogSink,
+  server: LogServer,
   timeoutMs = 18_000,
 ) {
   const startedAt = Date.now();
+
+  // Recent output for this server + a pointer to the full log file, so a server
+  // that never comes up is debuggable from the failure message alone.
+  const tail = () => {
+    const lines = sink.entries
+      .filter((e) => e.server === server)
+      .slice(-4)
+      .map((e) => e.text)
+      .join('\n');
+    return `${lines}\n(full log: ${sink.file})`;
+  };
 
   return new Promise<void>((resolve, reject) => {
     let settled = false;
@@ -246,7 +252,7 @@ function waitForHttpReady(
 
     const onExit = () => {
       if (!settled) {
-        fail(`Server for ${url} exited before it was ready. ${logs.slice(-4).join('\n')}`);
+        fail(`Server for ${url} exited before it was ready.\n${tail()}`);
       }
     };
 
@@ -254,7 +260,7 @@ function waitForHttpReady(
       if (settled) return;
 
       if (Date.now() - startedAt > timeoutMs) {
-        fail(`Timed out waiting for ${url}. ${logs.slice(-4).join('\n')}`);
+        fail(`Timed out waiting for ${url}.\n${tail()}`);
         return;
       }
 
@@ -281,20 +287,25 @@ function waitForHttpReady(
 async function startServer(
   repoPath: string,
   ref: string,
+  role: LogServer,
+  sink: LogSink,
   commandOverride?: string,
   overlayDir?: string,
 ): Promise<RunningServer> {
   trace(`startServer begin ${ref}`);
-  const runtime = await prepareRuntimeRepository(repoPath, ref, overlayDir);
+  const runtime = await prepareRuntimeRepository(repoPath, ref, overlayDir, (text) =>
+    sink.append(role, 'install', text),
+  );
   trace(`startServer runtime ${runtime.path}`);
   const port = await getFreePort();
   const command = commandOverride?.trim() || (await inferDevCommand(runtime.path, port));
   trace(`startServer command ${command}`);
-  const logs: string[] = [];
 
   const auth0Env = (await detectAuth0Config(runtime.path))
     ? { AUTH0_BASE_URL: `http://localhost:${port}`, APP_BASE_URL: `http://localhost:${port}` }
     : {};
+
+  sink.system(role, `launching: ${command} (port ${port}, ref ${displayRef(ref)})`);
 
   const child = spawn(command, {
     cwd: runtime.path,
@@ -308,13 +319,18 @@ async function startServer(
     shell: true,
   });
 
-  child.stdout.on('data', (chunk: Buffer) => appendLog(logs, chunk));
-  child.stderr.on('data', (chunk: Buffer) => appendLog(logs, chunk));
+  // Capture the dev server's full terminal output, tagged with its role (base /
+  // target). `shell:true` keeps the grandchild (node server.mjs) output flowing
+  // through these piped streams.
+  child.stdout.on('data', (chunk: Buffer) => sink.append(role, 'stdout', chunk.toString('utf8')));
+  child.stderr.on('data', (chunk: Buffer) => sink.append(role, 'stderr', chunk.toString('utf8')));
+  child.once('exit', (code) => sink.system(role, `process exited (code ${code ?? 'null'})`));
 
   const url = `http://127.0.0.1:${port}`;
 
   try {
-    await waitForHttpReady(url, child, logs);
+    await waitForHttpReady(url, child, sink, role);
+    sink.system(role, `server ready ${url}`);
     trace(`startServer ready ${url}`);
   } catch (error) {
     await stopProcess(child);
@@ -334,7 +350,6 @@ async function startServer(
       await runtime.cleanup();
       trace('server cleanup done');
     },
-    logs,
   };
 }
 
@@ -342,12 +357,21 @@ function asDataUrl(buffer: Buffer) {
   return `data:image/png;base64,${buffer.toString('base64')}`;
 }
 
+// Which server the capture window is currently loading, so the page's browser
+// console messages can be attributed to base vs target. Runs are serial, so a
+// single module-level value is sufficient; capturePage sets it before each load.
+let currentCaptureServer: LogServer = 'base';
+
 async function capturePage(
   window: BrowserWindow,
   baseUrl: string,
   route: VisualRoute,
   viewport: VisualDiffViewport,
+  server: LogServer,
 ): Promise<CapturedPage> {
+  // Attribute any browser-console messages this load emits to the right server.
+  currentCaptureServer = server;
+
   if (
     window.getBounds().width !== viewport.width ||
     window.getBounds().height !== viewport.height
@@ -452,29 +476,46 @@ function buildDiffImage(before: CapturedPage, after: CapturedPage) {
 export async function runVisualDiff(request: VisualDiffRequest): Promise<VisualDiffReport> {
   trace('runVisualDiff begin');
   const startedAt = Date.now();
+  const runId = Date.now().toString();
+  // One log file per run; both dev servers and the captured pages write into it,
+  // each line tagged [base] / [target]. The file is the durable full record; the
+  // returned `logs` snapshot is bounded.
+  const sink = new LogSink(runId, 'diff', `diff-${runId}.log`);
   const viewport = request.viewport ?? defaultViewport;
-  const allRoutes = await scanVisualRoutes(request.repoPath);
-  trace(`runVisualDiff routes scanned ${allRoutes.length}`);
-  const routes = selectRoutes(allRoutes, request.routes);
-  trace(`runVisualDiff routes selected ${routes.length}`);
-  const baseServer = await startServer(
-    request.repoPath,
-    request.baseRef,
-    request.command,
-    request.overlayDir,
-  );
+
+  let baseServer: RunningServer | undefined;
   let targetServer: RunningServer | undefined;
 
   try {
-    targetServer = await startServer(
+    const allRoutes = await scanVisualRoutes(request.repoPath);
+    trace(`runVisualDiff routes scanned ${allRoutes.length}`);
+    const routes = selectRoutes(allRoutes, request.routes);
+    trace(`runVisualDiff routes selected ${routes.length}`);
+    baseServer = await startServer(
       request.repoPath,
-      request.targetRef,
+      request.baseRef,
+      'base',
+      sink,
       request.command,
       request.overlayDir,
     );
+    targetServer = await startServer(
+      request.repoPath,
+      request.targetRef,
+      'target',
+      sink,
+      request.command,
+      request.overlayDir,
+    );
+    const base = baseServer;
+    const target = targetServer;
     trace('runVisualDiff servers ready');
     const routeReports: VisualDiffRouteReport[] = [];
     const captureWindow = createCaptureWindow(viewport);
+
+    // Capture the rendered page's browser console (JS errors, failed fetches) —
+    // the failure mode where the server returns 200 but the page is blank/broken.
+    attachConsoleCapture(captureWindow.webContents, () => currentCaptureServer, sink);
 
     // Apply mock profile overrides via session-level HTTP interception.
     // Gated on non-empty overrides so the default (no-override) path is
@@ -501,8 +542,8 @@ export async function runVisualDiff(request: VisualDiffRequest): Promise<VisualD
       for (const route of routes) {
         try {
           trace(`capture begin ${route.path}`);
-          const before = await capturePage(captureWindow, baseServer.url, route, viewport);
-          const after = await capturePage(captureWindow, targetServer.url, route, viewport);
+          const before = await capturePage(captureWindow, base.url, route, viewport, 'base');
+          const after = await capturePage(captureWindow, target.url, route, viewport, 'target');
           const diff = buildDiffImage(before, after);
           trace(`capture done ${route.path}`);
 
@@ -547,19 +588,29 @@ export async function runVisualDiff(request: VisualDiffRequest): Promise<VisualD
       repoPath: request.repoPath,
       baseRef: displayRef(request.baseRef),
       targetRef: displayRef(request.targetRef),
-      baseUrl: baseServer.url,
-      targetUrl: targetServer.url,
+      baseUrl: base.url,
+      targetUrl: target.url,
       createdAt: new Date().toISOString(),
       durationMs: Date.now() - startedAt,
       viewport,
       routes: routeReports,
       changedRoutes,
       totalRoutes: routeReports.length,
+      logFile: sink.file,
+      logs: sink.snapshot(),
     };
+  } catch (error) {
+    // Surface the captured output: a server that never came up is the main
+    // failure, and waitForHttpReady already appends the log path to its message —
+    // only add it here if it isn't already present.
+    const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof Error && message.includes(sink.file)) throw error;
+    throw new Error(`${message}\n(full log: ${sink.file})`, { cause: error });
   } finally {
     trace('cleanup servers begin');
     void targetServer?.cleanup().catch(() => undefined);
-    void baseServer.cleanup().catch(() => undefined);
+    void baseServer?.cleanup().catch(() => undefined);
+    sink.close();
     trace('cleanup servers scheduled');
   }
 }

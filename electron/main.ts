@@ -11,6 +11,8 @@ import {
   validateEndpointOverrides,
   validateGitHubBranchRequest,
   validateGitHubRepositoryRequest,
+  validateLogAppend,
+  validateLogReveal,
   validateSidecarLaunchRequest,
   validateVisualDiffRequest,
 } from './ipcValidation.js';
@@ -21,9 +23,16 @@ import {
   listLocalBranches,
   scanWorkspace,
 } from './repositories.js';
-import { getSidecarStatus, launchSidecar, setSidecarOverrides, stopSidecar } from './sidecar.js';
+import {
+  appendSidecarConsole,
+  getSidecarStatus,
+  launchSidecar,
+  setSidecarOverrides,
+  stopSidecar,
+} from './sidecar.js';
 import { runVisualDiff } from './visualDiff.js';
 import { ensureOverlayScaffold } from './repoOverlay.js';
+import { getLogDir, logBus } from './serverLogs.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -53,6 +62,11 @@ async function resolveOverlayDir(repoPath: string): Promise<string | undefined> 
 // Workspace directories explicitly chosen by the user via the open-dialog this session.
 // All repoPath values arriving over IPC must be at or under one of these roots.
 const authorizedRoots = new Set<string>();
+
+// The primary app window. Tracked at module scope so the logBus subscription can
+// stream captured server/page logs to it (and only it — never the hidden
+// visual-diff capture window).
+let activeWindow: BrowserWindow | undefined;
 
 /**
  * Wraps an ipcMain.handle registration to:
@@ -116,6 +130,11 @@ async function createWindow() {
     },
   });
 
+  activeWindow = mainWindow;
+  mainWindow.on('closed', () => {
+    if (activeWindow === mainWindow) activeWindow = undefined;
+  });
+
   const devServerUrl = process.env.VITE_DEV_SERVER_URL;
 
   // --- Renderer hardening (defense-in-depth) ---------------------------------
@@ -173,6 +192,19 @@ async function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  // Persist run logs under userData so the in-app drawer and "Reveal" can find
+  // them. getLogDir() falls back to os.tmpdir() for direct-call scripts.
+  process.env.DEEP_DISH_LOG_DIR ??= path.join(app.getPath('userData'), 'logs');
+
+  // Stream every captured log line to the renderer's log drawer. Target the main
+  // window only — getAllWindows() would also include the hidden visual-diff
+  // capture window (the captured app's own renderer), which must not receive these.
+  logBus.on('entry', (entry) => {
+    if (activeWindow && !activeWindow.isDestroyed()) {
+      activeWindow.webContents.send('logs:event', entry);
+    }
+  });
+
   registerHandler('workspace:select', async () => {
     const result = await dialog.showOpenDialog({
       title: 'Select an organization or workspace folder',
@@ -259,6 +291,32 @@ app.whenReady().then(async () => {
     const request = await validateChangeLinkRequest(raw, authorizedRoots);
     const changed = await getChangedFiles(request.repoPath, request.baseRef, request.targetRef);
     return buildChangeLinks(request.repoPath, changed, request.elements);
+  });
+
+  // Forward a browser-console message from the live sidecar preview <webview>
+  // into the running sidecar's log (the preview page lives in the renderer, so
+  // its console can't be captured in the main process like the diff's is).
+  registerHandler('logs:append', (_event, raw) => {
+    const { text, level } = validateLogAppend(raw);
+    appendSidecarConsole(text, level);
+  });
+
+  // Reveal a run's log file in the OS file manager. Confined to our own log dir
+  // (realpath containment) so a renderer-supplied path can't reveal anything else.
+  registerHandler('logs:reveal', async (_event, raw) => {
+    const file = validateLogReveal(raw);
+    const realDir = await fs.realpath(getLogDir());
+    let realFile: string;
+    try {
+      realFile = await fs.realpath(file);
+    } catch {
+      throw new Error('Log file no longer exists.');
+    }
+    if (realFile !== realDir && !realFile.startsWith(realDir + path.sep)) {
+      throw new Error('Refusing to reveal a path outside the log directory.');
+    }
+    shell.showItemInFolder(realFile);
+    return realFile;
   });
 
   await createWindow();

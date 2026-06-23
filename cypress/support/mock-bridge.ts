@@ -1,6 +1,7 @@
 import type {
   EndpointDefinition,
   RepositorySummary,
+  ServerLogEntry,
   SidecarStatus,
   VisualDiffReport,
   VisualDiffRequest,
@@ -166,5 +167,8 @@ export function buildMockBridge(options: MockBridgeOptions = {}) {
       return report;
     },
     overlayFolder: async (repoPath: string) => `${repoPath}/.deep-diff-overlay`,
+    onServerLog: (_callback: (entry: ServerLogEntry) => void) => () => undefined,
+    appendLog: async (_entry: { text: string; level?: string }) => undefined,
+    revealLog: async (file: string) => file,
   };
 }

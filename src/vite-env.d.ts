@@ -5,6 +5,7 @@ import type {
   ChangeProbe,
   EndpointDefinition,
   RepositorySummary,
+  ServerLogEntry,
   SidecarStatus,
   VisualDiffReport,
   VisualDiffRequest,
@@ -53,6 +54,13 @@ declare global {
       // Resolve (and create) the repo's overlay folder; open it in the OS file
       // manager when `open` is true. Returns the absolute folder path.
       overlayFolder: (repoPath: string, open?: boolean) => Promise<string>;
+      // Subscribe to streamed server/page log lines (sidecar + visual diff).
+      // Returns an unsubscribe function.
+      onServerLog: (callback: (entry: ServerLogEntry) => void) => () => void;
+      // Forward a sidecar preview-page console message into the run log.
+      appendLog: (entry: { text: string; level?: string }) => Promise<void>;
+      // Reveal a run's log file in the OS file manager.
+      revealLog: (file: string) => Promise<string>;
     };
   }
 
