@@ -33,7 +33,7 @@ describe('Runtime-discovered endpoints', () => {
     });
 
   it('merges a proxy-observed endpoint into the mockable inventory', () => {
-    cy.contains('button', 'Select organization folder').click();
+    cy.contains('button', 'Open repository folder').click();
     cy.contains('2 endpoints detected from auth0-routes-fixture.').should('be.visible');
     cy.get('.endpoint-list .endpoint-row').should('have.length', 2);
 

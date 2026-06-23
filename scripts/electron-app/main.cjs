@@ -17,11 +17,11 @@ app.disableHardwareAcceleration();
 app.on('window-all-closed', (e) => e.preventDefault());
 
 // ---------------------------------------------------------------------------
-// DEEP_DISH_DIFF_PROBE=1  →  run the mock-interception + stability probes
+// DEEP_DIFF_DIFF_PROBE=1  →  run the mock-interception + stability probes
 // Default (no env var)    →  run the standard 6/3 visual diff (unchanged)
 // ---------------------------------------------------------------------------
 
-const PROBE_MODE = process.env.DEEP_DISH_DIFF_PROBE === '1';
+const PROBE_MODE = process.env.DEEP_DIFF_DIFF_PROBE === '1';
 
 async function runStandardDiff() {
   const { runVisualDiff } = await import('../../dist-electron/visualDiff.js');

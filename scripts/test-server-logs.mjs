@@ -3,7 +3,7 @@
 //
 // Covers (pure Node — no Electron):
 //   1. LogSink: append writes prefixed lines to its file, entries[] is
-//      structured, logBus emits, getLogDir() honors DEEP_DISH_LOG_DIR, and
+//      structured, logBus emits, getLogDir() honors DEEP_DIFF_LOG_DIR, and
 //      retention prunes the oldest run logs beyond the cap.
 //   2. launchSidecar exposes status.logFile, and the file captures the dev
 //      server's stdout tagged [sidecar] [stdout].
@@ -28,7 +28,7 @@ const repoPath = path.join(projectRoot, 'mock-workspace', 'storefront-auth0');
 // Dedicated, readable log dir for this run (set before importing serverLogs so
 // getLogDir() picks it up; the modules read it lazily at LogSink creation).
 const logDir = path.join(os.tmpdir(), `deep-diff-logs-test-${Date.now()}`);
-process.env.DEEP_DISH_LOG_DIR = logDir;
+process.env.DEEP_DIFF_LOG_DIR = logDir;
 
 const { LogSink, getLogDir, logBus } = await import('../dist-electron/serverLogs.js');
 const { launchSidecar, stopSidecar, appendSidecarConsole } =
@@ -103,7 +103,7 @@ function cleanupLeaks() {
 
 // ── 1. LogSink unit ─────────────────────────────────────────────────────────
 async function testLogSinkUnit() {
-  assert(getLogDir() === logDir, 'getLogDir() honors DEEP_DISH_LOG_DIR', getLogDir());
+  assert(getLogDir() === logDir, 'getLogDir() honors DEEP_DIFF_LOG_DIR', getLogDir());
 
   const emitted = [];
   const onEntry = (entry) => emitted.push(entry);

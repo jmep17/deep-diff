@@ -19,7 +19,7 @@ Each repository gets its own overlay folder under the overlays root:
 ```
 
 - `<overlays-root>` defaults to `<userData>/overlays` (platform app-data dir). Override with the
-  `DEEP_DISH_OVERLAY_ROOT` environment variable.
+  `DEEP_DIFF_OVERLAY_ROOT` environment variable.
 - The `-<8charhash>` suffix is derived from the repo's absolute path so two repos with the same
   folder name don't collide.
 - Deep Diff creates this folder on the first sidecar launch / diff for the repo, drops an

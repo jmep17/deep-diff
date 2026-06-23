@@ -74,10 +74,10 @@ function runVisualDiffElectron(repoPath, baseRef, targetRef) {
   );
   const env = {
     ...process.env,
-    DEEP_DISH_REPO: repoPath,
-    DEEP_DISH_BASE: baseRef,
-    DEEP_DISH_TARGET: targetRef,
-    DEEP_DISH_OUT: outPath,
+    DEEP_DIFF_REPO: repoPath,
+    DEEP_DIFF_BASE: baseRef,
+    DEEP_DIFF_TARGET: targetRef,
+    DEEP_DIFF_OUT: outPath,
   };
   delete env.ELECTRON_RUN_AS_NODE;
   execFileSync(electronCli, [runnerDir], {

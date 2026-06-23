@@ -78,14 +78,14 @@ registerCaptureScheme();
 // otherwise lives under the app's userData. Resolved here in the main process so the
 // core modules stay Electron-free and the renderer can't supply an arbitrary copy source.
 function overlaysRoot() {
-  return process.env.DEEP_DISH_OVERLAY_ROOT ?? path.join(app.getPath('userData'), 'overlays');
+  return process.env.DEEP_DIFF_OVERLAY_ROOT ?? path.join(app.getPath('userData'), 'overlays');
 }
 
 // Persisted UI state (profiles, edited mock bodies, settings) lives in a single
 // JSON file under userData. App-owned storage, not the user's repo — written
 // atomically (tmp + rename) so a crash mid-write can't corrupt it.
 function statePath() {
-  return process.env.DEEP_DISH_STATE_FILE ?? path.join(app.getPath('userData'), 'state.json');
+  return process.env.DEEP_DIFF_STATE_FILE ?? path.join(app.getPath('userData'), 'state.json');
 }
 
 // Validate a renderer-supplied overlay-relative path: a non-empty string, no NUL,
@@ -250,7 +250,7 @@ async function createWindow() {
 app.whenReady().then(async () => {
   // Persist run logs under userData so the in-app drawer and "Reveal" can find
   // them. getLogDir() falls back to os.tmpdir() for direct-call scripts.
-  process.env.DEEP_DISH_LOG_DIR ??= path.join(app.getPath('userData'), 'logs');
+  process.env.DEEP_DIFF_LOG_DIR ??= path.join(app.getPath('userData'), 'logs');
 
   // Stream every captured log line to the renderer's log drawer. Target the main
   // window only — getAllWindows() would also include the hidden visual-diff

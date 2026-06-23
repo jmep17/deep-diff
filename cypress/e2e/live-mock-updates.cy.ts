@@ -27,7 +27,7 @@ describe('Live mock updates without sidecar relaunch', () => {
     });
 
     // Load the fixture endpoints into the inventory + floating toolbar.
-    cy.contains('button', 'Select organization folder').click();
+    cy.contains('button', 'Open repository folder').click();
     cy.contains('2 endpoints detected from auth0-routes-fixture.').should('be.visible');
 
     // A running sidecar is the precondition for live updates.

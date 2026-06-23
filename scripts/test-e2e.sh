@@ -7,10 +7,10 @@ cd "$ROOT"
 # shellcheck source=ensure-node.sh
 source "$ROOT/scripts/ensure-node.sh"
 
-E2E_PORT="${DEEP_DISH_E2E_PORT:-5174}"
+E2E_PORT="${DEEP_DIFF_E2E_PORT:-5174}"
 E2E_URL="http://127.0.0.1:${E2E_PORT}"
 CYPRESS_BROWSER="${CYPRESS_BROWSER:-electron}"
-export DEEP_DISH_E2E_PORT="$E2E_PORT"
+export DEEP_DIFF_E2E_PORT="$E2E_PORT"
 export CYPRESS_BROWSER
 export CYPRESS_CACHE_FOLDER="$ROOT/.cache/cypress"
 

@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 import { scanEndpoints } from './electron/endpointScanner';
 import { detectVisualRoutesForChangedFiles, scanVisualRoutes } from './electron/routeDetection';
 
-const e2ePort = process.env.DEEP_DISH_E2E_PORT ?? '5174';
+const e2ePort = process.env.DEEP_DIFF_E2E_PORT ?? '5174';
 const execFileAsync = promisify(execFile);
 const fixturePath = path.join(process.cwd(), 'mock-repositories', 'auth0-routes-fixture');
 

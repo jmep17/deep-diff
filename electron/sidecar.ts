@@ -367,7 +367,7 @@ export async function launchSidecar(request: SidecarLaunchRequest) {
         ...process.env,
         PORT: String(port),
         VITE_PORT: String(port),
-        DEEP_DISH_DIFF_BRANCH: request.branch ?? '',
+        DEEP_DIFF_DIFF_BRANCH: request.branch ?? '',
         ...auth0Env,
       },
       shell: true,

@@ -49,7 +49,7 @@ const CONSOLE_PATCH_SCRIPT = `(() => {
 })();`;
 
 function trace(message: string) {
-  if (!process.env.DEEP_DISH_DIFF_TRACE) return;
+  if (!process.env.DEEP_DIFF_DIFF_TRACE) return;
   try {
     fsSync.appendFileSync(
       path.join(path.dirname(fileURLToPath(import.meta.url)), 'visual-diff.trace'),
@@ -334,7 +334,7 @@ async function startServer(
       ...process.env,
       PORT: String(port),
       VITE_PORT: String(port),
-      DEEP_DISH_DIFF_BRANCH: displayRef(ref),
+      DEEP_DIFF_DIFF_BRANCH: displayRef(ref),
       ...auth0Env,
     },
     shell: true,

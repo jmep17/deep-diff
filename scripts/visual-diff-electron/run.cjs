@@ -4,12 +4,12 @@
 // this runner is parametrized so it can drive a visual diff against ANY repo.
 //
 // Inputs (env):
-//   DEEP_DISH_REPO   absolute path to the repo to diff (required)
-//   DEEP_DISH_BASE   base ref (default "main")
-//   DEEP_DISH_TARGET target ref (required)
-//   DEEP_DISH_OUT    file path to write the JSON report to (optional)
+//   DEEP_DIFF_REPO   absolute path to the repo to diff (required)
+//   DEEP_DIFF_BASE   base ref (default "main")
+//   DEEP_DIFF_TARGET target ref (required)
+//   DEEP_DIFF_OUT    file path to write the JSON report to (optional)
 //
-// It writes the report JSON to DEEP_DISH_OUT (robust against stdout noise) and
+// It writes the report JSON to DEEP_DIFF_OUT (robust against stdout noise) and
 // also prints a single JSON line to stdout.
 const { app, protocol } = require('electron');
 const fs = require('node:fs');
@@ -30,10 +30,10 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 
-const repoPath = process.env.DEEP_DISH_REPO;
-const baseRef = process.env.DEEP_DISH_BASE || 'main';
-const targetRef = process.env.DEEP_DISH_TARGET;
-const outPath = process.env.DEEP_DISH_OUT;
+const repoPath = process.env.DEEP_DIFF_REPO;
+const baseRef = process.env.DEEP_DIFF_BASE || 'main';
+const targetRef = process.env.DEEP_DIFF_TARGET;
+const outPath = process.env.DEEP_DIFF_OUT;
 
 app.disableHardwareAcceleration();
 // runVisualDiff destroys its capture window; keep the app alive until we quit.
@@ -53,8 +53,8 @@ function emit(payload) {
 
 app.whenReady().then(async () => {
   try {
-    if (!repoPath) throw new Error('DEEP_DISH_REPO is required');
-    if (!targetRef) throw new Error('DEEP_DISH_TARGET is required');
+    if (!repoPath) throw new Error('DEEP_DIFF_REPO is required');
+    if (!targetRef) throw new Error('DEEP_DIFF_TARGET is required');
 
     const { runVisualDiff } = await import('../../dist-electron/visualDiff.js');
     const report = await runVisualDiff({
@@ -71,7 +71,7 @@ app.whenReady().then(async () => {
     const capturedKeys = Object.keys(getCaptures());
 
     // Optionally dump before/after/diff PNGs for visual inspection.
-    const imagesDir = process.env.DEEP_DISH_IMAGES_DIR;
+    const imagesDir = process.env.DEEP_DIFF_IMAGES_DIR;
     if (imagesDir) {
       const path = require('node:path');
       fs.mkdirSync(imagesDir, { recursive: true });

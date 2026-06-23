@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "concurrently -k \"pnpm run dev:renderer\" \"pnpm run dev:electron\"",
     "dev:renderer": "vite --host 127.0.0.1 --port 5180 --strictPort",
-    "dev:renderer:e2e": "vite --host 127.0.0.1 --port ${DEEP_DISH_E2E_PORT:-5174} --strictPort",
+    "dev:renderer:e2e": "vite --host 127.0.0.1 --port ${DEEP_DIFF_E2E_PORT:-5174} --strictPort",
     "dev:electron": "wait-on tcp:5180 && pnpm run build:electron && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5180 electron .",
     "build": "tsc -p tsconfig.json && vite build && pnpm run build:electron",
     "build:electron": "tsc -p tsconfig.electron.json && esbuild electron/preload.ts --bundle --format=cjs --platform=node --external:electron --outfile=dist-electron/preload.cjs && rm -f dist-electron/preload.js && node scripts/build-capture-inject.mjs",

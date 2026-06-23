@@ -47,7 +47,7 @@ describe('Endpoint detection and mocks', () => {
   });
 
   it('hydrates the endpoint inventory after selecting a workspace', () => {
-    cy.contains('button', 'Select organization folder').click();
+    cy.contains('button', 'Open repository folder').click();
 
     cy.contains('2 endpoints detected from auth0-routes-fixture.').should('be.visible');
     // Every detected endpoint is mocked by default (single live set).
@@ -63,7 +63,7 @@ describe('Endpoint detection and mocks', () => {
   });
 
   it('filters detected endpoints and updates the selected mock shape', () => {
-    cy.contains('button', 'Select organization folder').click();
+    cy.contains('button', 'Open repository folder').click();
 
     cy.get('input[placeholder="Search endpoints"]').clear().type('auth');
     cy.get('.endpoint-list .endpoint-row').should('have.length', 1);
@@ -81,7 +81,7 @@ describe('Endpoint detection and mocks', () => {
   });
 
   it('mocks every detected endpoint by default and toggles them individually', () => {
-    cy.contains('button', 'Select organization folder').click();
+    cy.contains('button', 'Open repository folder').click();
 
     // Single live set: every detected endpoint is mocked and applied to the next run.
     cy.get('[data-testid="empty-report"]').should(

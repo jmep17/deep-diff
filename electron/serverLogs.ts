@@ -46,12 +46,12 @@ const MAX_ENTRIES = 2000; // in-memory snapshot cap (the file on disk stays unbo
 const MAX_LOG_FILES = 25; // retention: keep only the most recent N run logs on disk
 
 /**
- * Directory the run logs are written to. Resolves from `DEEP_DISH_LOG_DIR` (set
+ * Directory the run logs are written to. Resolves from `DEEP_DIFF_LOG_DIR` (set
  * by main.ts to the app's userData/logs) with an `os.tmpdir()` fallback so
  * direct-call scripts work without an Electron app.
  */
 export function getLogDir(): string {
-  return process.env.DEEP_DISH_LOG_DIR || path.join(os.tmpdir(), 'deep-diff-logs');
+  return process.env.DEEP_DIFF_LOG_DIR || path.join(os.tmpdir(), 'deep-diff-logs');
 }
 
 /** Map an Electron console-message level (number or string) to a stable name. */

@@ -15,7 +15,7 @@ const path = require('node:path');
 const { execSync } = require('node:child_process');
 
 const logDir = path.join(os.tmpdir(), `deep-diff-logs-console-${Date.now()}`);
-process.env.DEEP_DISH_LOG_DIR = logDir;
+process.env.DEEP_DIFF_LOG_DIR = logDir;
 
 // Destroying our window before the diff section would otherwise close the last
 // window and trigger Electron's default auto-quit. A no-op listener suppresses it
