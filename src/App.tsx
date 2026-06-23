@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   BadgeCheck,
   Boxes,
+  Check,
   ChevronDown,
   ChevronUp,
   ChevronsLeftRight,
@@ -45,6 +46,10 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
+import { Select } from '@base-ui/react/select';
+import { Switch } from '@base-ui/react/switch';
+import { Toggle as ToggleGroupItem } from '@base-ui/react/toggle';
+import { ToggleGroup } from '@base-ui/react/toggle-group';
 import { seedBranches, seedEndpoints, seedRepositories } from './data/seed';
 import { FilterCombobox } from './components/FilterCombobox';
 import type {
@@ -62,6 +67,38 @@ import type {
 const bridge = window.deepDiff;
 const workingTreeRef = '__working_tree__';
 
+// Capture viewport presets, keyed for the device Toggle Group.
+const VIEWPORT_PRESETS = {
+  desktop: { width: 1280, height: 900 },
+  laptop: { width: 1024, height: 768 },
+  mobile: { width: 375, height: 667 },
+} as const;
+type ViewportKey = keyof typeof VIEWPORT_PRESETS;
+
+function viewportKey(viewport: { width: number; height: number }): ViewportKey | '' {
+  return (
+    (Object.keys(VIEWPORT_PRESETS) as ViewportKey[]).find(
+      (key) =>
+        VIEWPORT_PRESETS[key].width === viewport.width &&
+        VIEWPORT_PRESETS[key].height === viewport.height,
+    ) ?? ''
+  );
+}
+
+// Diff-tolerance presets (fraction of pixels allowed to differ) for the
+// sensitivity Select. Label keeps the toolbar button's old formatting.
+const SENSITIVITY_PRESETS = [0, 0.001, 0.01, 0.05, 0.1, 0.25] as const;
+
+function formatSensitivityPct(value: number): string {
+  if (value === 0) return '0%';
+  return value < 0.01 ? `${(value * 100).toFixed(1)}%` : `${Math.round(value * 100)}%`;
+}
+
+const SENSITIVITY_ITEMS = SENSITIVITY_PRESETS.map((value) => ({
+  value,
+  label: formatSensitivityPct(value),
+}));
+
 const navItems = [
   { label: 'Compare', icon: ChevronsLeftRight },
   { label: 'Endpoints', icon: Code2 },
@@ -74,6 +111,11 @@ function cx(...classes: Array<string | false | undefined>) {
   return classes.filter(Boolean).join(' ');
 }
 
+// Base UI Switch keeps the same external API as the old custom button so call
+// sites are untouched: it still renders `<button role="switch" aria-checked>`
+// (cypress drives `[role="switch"]`). `onChange` stays argument-less — call
+// sites toggle off current state, not the emitted `checked` value. The thumb is
+// forced to a <span> so the existing `.toggle span` CSS still positions it.
 function Toggle({
   checked,
   onChange,
@@ -84,16 +126,14 @@ function Toggle({
   label: string;
 }) {
   return (
-    <button
+    <Switch.Root
       className={cx('toggle', checked && 'toggle-on')}
-      type="button"
-      role="switch"
-      aria-checked={checked}
+      checked={checked}
+      onCheckedChange={onChange}
       aria-label={label}
-      onClick={onChange}
     >
-      <span />
-    </button>
+      <Switch.Thumb render={<span />} />
+    </Switch.Root>
   );
 }
 
@@ -1020,24 +1060,33 @@ function RepositoryControls({
         </div>
       </div>
 
-      <div className="segmented-control">
-        <button
+      <ToggleGroup
+        className="segmented-control"
+        value={[sourceMode]}
+        onValueChange={(value) => {
+          // Single-select: ignore an empty array (deselecting the active item) —
+          // a source mode must always be set.
+          const next = value[0];
+          if (next === 'local' || next === 'github') setSourceMode(next);
+        }}
+      >
+        <ToggleGroupItem
+          value="local"
           className={cx(sourceMode === 'local' && 'selected')}
-          type="button"
-          onClick={() => setSourceMode('local')}
+          aria-label="Local repositories"
         >
           <FolderOpen size={15} />
           Local
-        </button>
-        <button
+        </ToggleGroupItem>
+        <ToggleGroupItem
+          value="github"
           className={cx(sourceMode === 'github' && 'selected')}
-          type="button"
-          onClick={() => setSourceMode('github')}
+          aria-label="GitHub organization"
         >
           <Github size={15} />
           GitHub org
-        </button>
-      </div>
+        </ToggleGroupItem>
+      </ToggleGroup>
 
       {sourceMode === 'local' ? (
         <button className="wide-secondary" type="button" onClick={chooseWorkspace}>
@@ -1365,6 +1414,7 @@ function ComparisonWorkspace({
 }) {
   const selectedRoute =
     report?.routes.find((route) => route.id === selectedRouteId) ?? report?.routes[0];
+  const vpKey = viewportKey(viewport);
 
   return (
     <section className="compare-workspace" data-testid="comparison-workspace">
@@ -1378,52 +1428,69 @@ function ComparisonWorkspace({
           </p>
         </div>
         <div className="toolbar-controls">
-          <button
-            className={cx(
-              'icon-button',
-              viewport.width === 1280 && viewport.height === 900 && 'selected',
-            )}
-            type="button"
-            aria-label="Desktop viewport"
-            onClick={() => setViewport({ width: 1280, height: 900 })}
-          >
-            <Monitor size={17} />
-          </button>
-          <button
-            className={cx(
-              'icon-button',
-              viewport.width === 1024 && viewport.height === 768 && 'selected',
-            )}
-            type="button"
-            aria-label="Laptop viewport"
-            onClick={() => setViewport({ width: 1024, height: 768 })}
-          >
-            <Laptop size={17} />
-          </button>
-          <button
-            className={cx(
-              'icon-button',
-              viewport.width === 375 && viewport.height === 667 && 'selected',
-            )}
-            type="button"
-            aria-label="Mobile viewport"
-            onClick={() => setViewport({ width: 375, height: 667 })}
-          >
-            <Smartphone size={17} />
-          </button>
-          <button
-            className="ghost-button compact"
-            type="button"
-            title="Click to cycle tolerance — percentage of pixels that may differ before a route is marked changed"
-            onClick={() => {
-              const presets = [0, 0.001, 0.01, 0.05, 0.1, 0.25];
-              const next = presets[(presets.indexOf(sensitivity) + 1) % presets.length];
-              setSensitivity(next ?? 0);
+          <ToggleGroup
+            className="viewport-group"
+            value={vpKey ? [vpKey] : []}
+            onValueChange={(value) => {
+              const key = value[0];
+              if (key && key in VIEWPORT_PRESETS) setViewport(VIEWPORT_PRESETS[key as ViewportKey]);
             }}
           >
-            <SlidersHorizontal size={16} />
-            {`Sensitivity ${sensitivity === 0 ? '0%' : sensitivity < 0.01 ? `${(sensitivity * 100).toFixed(1)}%` : `${Math.round(sensitivity * 100)}%`}`}
-          </button>
+            <ToggleGroupItem
+              value="desktop"
+              className={cx('icon-button', vpKey === 'desktop' && 'selected')}
+              aria-label="Desktop viewport"
+            >
+              <Monitor size={17} />
+            </ToggleGroupItem>
+            <ToggleGroupItem
+              value="laptop"
+              className={cx('icon-button', vpKey === 'laptop' && 'selected')}
+              aria-label="Laptop viewport"
+            >
+              <Laptop size={17} />
+            </ToggleGroupItem>
+            <ToggleGroupItem
+              value="mobile"
+              className={cx('icon-button', vpKey === 'mobile' && 'selected')}
+              aria-label="Mobile viewport"
+            >
+              <Smartphone size={17} />
+            </ToggleGroupItem>
+          </ToggleGroup>
+          <Select.Root
+            items={SENSITIVITY_ITEMS}
+            value={sensitivity}
+            onValueChange={(value) => setSensitivity(value ?? 0)}
+          >
+            <Select.Trigger
+              className="ghost-button compact"
+              title="Tolerance — percentage of pixels that may differ before a route is marked changed"
+            >
+              <SlidersHorizontal size={16} />
+              <span>Sensitivity</span>
+              <Select.Value>{(value: number) => formatSensitivityPct(value)}</Select.Value>
+              <Select.Icon className="combobox-icon-btn">
+                <ChevronDown size={14} />
+              </Select.Icon>
+            </Select.Trigger>
+            <Select.Portal>
+              <Select.Positioner className="combobox-positioner" sideOffset={4}>
+                <Select.Popup className="combobox-popup">
+                  <Select.List>
+                    {SENSITIVITY_ITEMS.map((item) => (
+                      <Select.Item key={item.value} value={item.value} className="combobox-item">
+                        <Select.ItemText>{item.label}</Select.ItemText>
+                        <Select.ItemIndicator className="combobox-item-indicator">
+                          <Check size={14} />
+                        </Select.ItemIndicator>
+                      </Select.Item>
+                    ))}
+                  </Select.List>
+                </Select.Popup>
+              </Select.Positioner>
+            </Select.Portal>
+          </Select.Root>
         </div>
       </div>
 

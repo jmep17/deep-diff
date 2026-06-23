@@ -446,6 +446,13 @@ button:disabled {
   box-shadow: 0 6px 16px rgba(80, 54, 28, 0.1);
 }
 
+/* Device viewport Toggle Group: a transparent flex wrapper so its icon buttons
+   keep the same spacing they had as direct children of .toolbar-controls. */
+.viewport-group {
+  display: inline-flex;
+  gap: 8px;
+}
+
 .github-form {
   display: grid;
   gap: 8px;
