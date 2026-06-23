@@ -144,6 +144,52 @@ function webviewConsoleLevel(level?: number): string {
 // Bottom drawer that shows captured dev-server output + rendered-page console,
 // streamed from the main process. Lines are tagged by server (base / target /
 // sidecar) and stream (stdout / stderr / console / install / system).
+// Escape, then wrap JSON tokens in classed spans for syntax highlighting. The
+// input is escaped first, so the only markup injected is our own <span>s.
+function highlightJsonHtml(json: string): string {
+  const esc = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return esc.replace(
+    /("(?:\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(?:\s*:)?|\b(?:true|false)\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g,
+    (match) => {
+      let cls = 'tok-num';
+      if (/^"/.test(match)) cls = /:$/.test(match) ? 'tok-key' : 'tok-str';
+      else if (/^(?:true|false)$/.test(match)) cls = 'tok-bool';
+      else if (match === 'null') cls = 'tok-null';
+      return `<span class="${cls}">${match}</span>`;
+    },
+  );
+}
+
+// If a log line contains a JSON object/array (optionally after a text prefix),
+// pretty-print + highlight that portion; otherwise render the raw text.
+function tryFormatJson(text: string): { pre: string; json: string } | null {
+  const start = text.search(/[[{]/);
+  if (start === -1) return null;
+  const candidate = text.slice(start).trim();
+  if (candidate.length < 2) return null;
+  try {
+    const parsed = JSON.parse(candidate);
+    if (parsed === null || typeof parsed !== 'object') return null;
+    return { pre: text.slice(0, start), json: JSON.stringify(parsed, null, 2) };
+  } catch {
+    return null;
+  }
+}
+
+function LogText({ text }: { text: string }) {
+  const formatted = useMemo(() => tryFormatJson(text), [text]);
+  if (!formatted) return <span className="log-text">{text}</span>;
+  return (
+    <span className="log-text">
+      {formatted.pre.trim() && <span className="log-pre">{formatted.pre.trim()} </span>}
+      <code
+        className="log-json"
+        dangerouslySetInnerHTML={{ __html: highlightJsonHtml(formatted.json) }}
+      />
+    </span>
+  );
+}
+
 function LogDrawer({
   entries,
   open,
@@ -259,7 +305,7 @@ function LogDrawer({
                 {entry.stream}
                 {entry.level ? `:${entry.level}` : ''}
               </span>
-              <span className="log-text">{entry.text}</span>
+              <LogText text={entry.text} />
             </div>
           ))
         )}
@@ -588,11 +634,11 @@ function App() {
   // profile's effective overrides and pushes them to the proxy via
   // `setSidecarOverrides` (bringing a proxy up on the first override), then
   // reloads the preview. A visual-diff run still reads them at diff time.
-  function toggleEndpointOverride(endpoint: EndpointDefinition) {
+  function toggleEndpointOverride(endpoint: EndpointDefinition, profileId = activeProfileId) {
     const key = `${endpoint.method.toUpperCase()}:${endpoint.path}`;
     setProfiles((current) =>
       current.map((profile) => {
-        if (profile.id !== activeProfileId) return profile;
+        if (profile.id !== profileId) return profile;
         const next = { ...profile.endpointOverrides };
         if (next[key]) {
           delete next[key];
@@ -805,6 +851,7 @@ function App() {
               endpoints={endpoints}
               onToggle={toggleProfile}
               onAdd={addProfile}
+              onToggleEndpointOverride={toggleEndpointOverride}
             />
           </div>
         )}
@@ -1031,12 +1078,26 @@ function MockProfiles({
   endpoints,
   onToggle,
   onAdd,
+  onToggleEndpointOverride,
 }: {
   profiles: MockProfile[];
   endpoints: EndpointDefinition[];
   onToggle: (profileId: string) => void;
   onAdd: () => void;
+  onToggleEndpointOverride?: (endpoint: EndpointDefinition, profileId: string) => void;
 }) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const canExpand = Boolean(onToggleEndpointOverride);
+
+  function toggleExpand(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   return (
     <div className="panel-section">
       <div className="section-heading inline">
@@ -1051,31 +1112,92 @@ function MockProfiles({
       </div>
 
       <div className="profile-list">
-        {profiles.map((profile) => (
-          <article
-            key={profile.id}
-            className={cx('profile-row', `profile-${profile.color}`, profile.enabled && 'enabled')}
-          >
-            <div className="profile-icon">
-              {profile.color === 'red' ? (
-                <Bug size={16} />
-              ) : profile.color === 'yellow' ? (
-                <Zap size={16} />
-              ) : (
-                <ShieldCheck size={16} />
+        {profiles.map((profile) => {
+          const isOpen = expanded.has(profile.id);
+          const overrideCount = Object.keys(profile.endpointOverrides).length;
+          return (
+            <div key={profile.id} className="profile-block">
+              <article
+                className={cx(
+                  'profile-row',
+                  `profile-${profile.color}`,
+                  profile.enabled && 'enabled',
+                )}
+              >
+                <div className="profile-icon">
+                  {profile.color === 'red' ? (
+                    <Bug size={16} />
+                  ) : profile.color === 'yellow' ? (
+                    <Zap size={16} />
+                  ) : (
+                    <ShieldCheck size={16} />
+                  )}
+                </div>
+                {canExpand ? (
+                  <button
+                    type="button"
+                    className="profile-meta"
+                    onClick={() => toggleExpand(profile.id)}
+                    aria-expanded={isOpen}
+                  >
+                    <strong>{profile.name}</strong>
+                    <small>
+                      {overrideCount} of {endpoints.length} endpoints mocked
+                    </small>
+                  </button>
+                ) : (
+                  <div>
+                    <strong>{profile.name}</strong>
+                    <small>{profile.description}</small>
+                  </div>
+                )}
+                {canExpand && (
+                  <button
+                    type="button"
+                    className="profile-expand"
+                    onClick={() => toggleExpand(profile.id)}
+                    aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${profile.name} mocks`}
+                  >
+                    {isOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                  </button>
+                )}
+                <Toggle
+                  checked={profile.enabled}
+                  onChange={() => onToggle(profile.id)}
+                  label={`Toggle ${profile.name}`}
+                />
+              </article>
+
+              {canExpand && isOpen && (
+                <div className="profile-mocks">
+                  {endpoints.length === 0 && (
+                    <p className="profile-mocks-empty">No endpoints detected yet.</p>
+                  )}
+                  {endpoints.map((endpoint) => {
+                    const key = `${endpoint.method.toUpperCase()}:${endpoint.path}`;
+                    const override = profile.endpointOverrides[key];
+                    const active = Boolean(override);
+                    const body = active ? override : endpoint.mock;
+                    return (
+                      <div key={endpoint.id} className={cx('mock-row', active && 'active')}>
+                        <div className="mock-row-head">
+                          <MethodPill method={endpoint.method} />
+                          <code title={endpoint.path}>{endpoint.path}</code>
+                          <Toggle
+                            checked={active}
+                            onChange={() => onToggleEndpointOverride?.(endpoint, profile.id)}
+                            label={`Toggle mock for ${endpoint.method} ${endpoint.path} in ${profile.name}`}
+                          />
+                        </div>
+                        <pre className="mock-json">{JSON.stringify(body ?? {}, null, 2)}</pre>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
-            <div>
-              <strong>{profile.name}</strong>
-              <small>{profile.description}</small>
-            </div>
-            <Toggle
-              checked={profile.enabled}
-              onChange={() => onToggle(profile.id)}
-              label={`Toggle ${profile.name}`}
-            />
-          </article>
-        ))}
+          );
+        })}
       </div>
 
       <div className="mock-summary">
@@ -1384,6 +1506,26 @@ interface PreviewWebview extends HTMLElement {
   executeJavaScript(code: string): Promise<unknown>;
 }
 
+// Runs inside the sidecar <webview>. Patches console.* so object arguments are
+// JSON-stringified BEFORE the real console call — otherwise Chromium collapses
+// them to "[object Object]" before the `console-message` event we capture fires,
+// and the object content is unrecoverable on our side. Idempotent (guards a flag).
+const CONSOLE_PATCH_SCRIPT = `(() => {
+  if (window.__ddsConsolePatched) return;
+  window.__ddsConsolePatched = true;
+  const fmt = (a) => {
+    if (typeof a === 'string') return a;
+    if (a instanceof Error) return a.stack || (a.name + ': ' + a.message);
+    if (a === null || a === undefined || typeof a !== 'object') return String(a);
+    try { return JSON.stringify(a, null, 2); } catch (_e) { return String(a); }
+  };
+  for (const m of ['log', 'info', 'warn', 'error', 'debug']) {
+    const orig = console[m];
+    if (typeof orig !== 'function') continue;
+    console[m] = (...args) => orig.apply(console, args.map(fmt));
+  }
+})();`;
+
 // Runs inside the sidecar <webview>. Walks the DOM and reads each visible
 // element's source origin from (a) an explicit data attribute, or (b) the React
 // dev-build fiber's `_debugSource` (fileName + line). Returns JSON-serializable
@@ -1571,7 +1713,14 @@ function SidecarPanel({
         ?.catch(() => undefined);
     };
 
+    // Patch the page's console as early as we can reach a frame so object args
+    // are JSON-stringified before Chromium collapses them to "[object Object]".
+    const onDomReady = () => {
+      webviewRef.current?.executeJavaScript(CONSOLE_PATCH_SCRIPT).catch(() => undefined);
+    };
+
     el.addEventListener('console-message', onConsole as EventListener);
+    el.addEventListener('dom-ready', onDomReady);
     el.addEventListener('did-start-loading', onStart);
     el.addEventListener('did-fail-load', onFail as EventListener);
     el.addEventListener('did-stop-loading', onStop);
@@ -1579,6 +1728,7 @@ function SidecarPanel({
       window.clearTimeout(retryTimer);
       window.clearTimeout(revealFallback);
       el.removeEventListener('console-message', onConsole as EventListener);
+      el.removeEventListener('dom-ready', onDomReady);
       el.removeEventListener('did-start-loading', onStart);
       el.removeEventListener('did-fail-load', onFail as EventListener);
       el.removeEventListener('did-stop-loading', onStop);

@@ -518,7 +518,7 @@ select {
 
 .profile-row {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto;
+  grid-template-columns: 34px minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 10px;
   min-height: 56px;
@@ -526,6 +526,99 @@ select {
   border-radius: var(--radius);
   padding: 8px;
   background: var(--mozzarella);
+}
+
+.profile-block {
+  display: grid;
+  gap: 0;
+}
+
+.profile-meta {
+  display: block;
+  min-width: 0;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.profile-expand {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--mozzarella);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.profile-expand:hover {
+  color: var(--ink);
+}
+
+.profile-mocks {
+  display: grid;
+  gap: 8px;
+  margin: 6px 0 2px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius);
+  background: rgba(0, 0, 0, 0.015);
+}
+
+.profile-mocks-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mock-row {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--mozzarella);
+  overflow: hidden;
+}
+
+.mock-row.active {
+  border-color: rgba(45, 139, 77, 0.45);
+  box-shadow: 0 0 0 2px rgba(45, 139, 77, 0.08);
+}
+
+.mock-row-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+}
+
+.mock-row-head code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.mock-json {
+  margin: 0;
+  padding: 9px 11px;
+  border-top: 1px solid var(--line);
+  background: #1e1e2e;
+  color: #d6deeb;
+  font-family: 'SFMono-Regular', ui-monospace, 'JetBrains Mono', Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow: auto;
 }
 
 .profile-row.enabled {
@@ -1797,4 +1890,43 @@ select {
 .log-line.is-system .log-text {
   color: #8fb7d6;
   font-style: italic;
+}
+
+.log-pre {
+  color: #8b8478;
+}
+
+.log-json {
+  display: block;
+  margin-top: 2px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--charcoal-700);
+  background: #14161f;
+  font-family: inherit;
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre;
+  overflow-x: auto;
+  tab-size: 2;
+}
+
+.log-json .tok-key {
+  color: #7fb0ff;
+}
+
+.log-json .tok-str {
+  color: #9ece6a;
+}
+
+.log-json .tok-num {
+  color: #ff9e64;
+}
+
+.log-json .tok-bool {
+  color: #bb9af7;
+}
+
+.log-json .tok-null {
+  color: #f7768e;
 }
