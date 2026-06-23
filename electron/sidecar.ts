@@ -140,6 +140,49 @@ function getFreePort() {
   });
 }
 
+// Poll the REAL dev server (not the proxy in front of it) until it answers, so
+// `launchSidecar` only exposes its URL once the server is actually listening.
+// Resolves on any HTTP response; rejects on timeout or if the process exits.
+function waitForServerReady(
+  port: number,
+  child: ChildProcessWithoutNullStreams,
+  sink: LogSink,
+  timeoutMs = 20000,
+): Promise<void> {
+  const url = `http://127.0.0.1:${port}`;
+  const start = Date.now();
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (err?: Error) => {
+      if (settled) return;
+      settled = true;
+      child.removeListener('exit', onExit);
+      if (err) reject(err);
+      else resolve();
+    };
+    const onExit = () =>
+      finish(new Error(`Dev server exited before it was ready (logs: ${sink.file}).`));
+    child.once('exit', onExit);
+
+    const attempt = () => {
+      if (settled) return;
+      const req = http.get(url, (res) => {
+        res.resume();
+        finish();
+      });
+      req.on('error', () => {
+        if (Date.now() - start > timeoutMs) {
+          finish(new Error(`Timed out waiting for ${url} to start (logs: ${sink.file}).`));
+        } else {
+          setTimeout(attempt, 300);
+        }
+      });
+      req.setTimeout(2000, () => req.destroy());
+    };
+    attempt();
+  });
+}
+
 async function fileExists(filePath: string) {
   return fs.access(filePath).then(
     () => true,
@@ -360,6 +403,12 @@ export async function launchSidecar(request: SidecarLaunchRequest) {
     );
     proxyServer = proxy.server;
     const exposedUrl = `http://127.0.0.1:${proxy.port}`;
+
+    // Wait for the REAL dev server to listen before exposing the URL. The proxy
+    // answers immediately — with a 502 "Proxy error: ECONNREFUSED" body — before
+    // the server behind it is up, which otherwise flashes a proxy-error page in
+    // the preview (a "successful" navigation, so the webview's retry never fires).
+    await waitForServerReady(port, sidecarProcess, sink);
 
     status = {
       running: true,

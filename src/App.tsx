@@ -881,7 +881,7 @@ function App() {
           <div className="topbar-actions">
             <button className="ghost-button" type="button" onClick={chooseWorkspace}>
               <FolderOpen size={16} />
-              Open local organization
+              Open folder
             </button>
             <button className="ghost-button" type="button" onClick={fetchGitHubRepositories}>
               <Github size={16} />
@@ -1147,7 +1147,7 @@ function RepositoryControls({
       {sourceMode === 'local' ? (
         <button className="wide-secondary" type="button" onClick={chooseWorkspace}>
           <FolderOpen size={16} />
-          Select organization folder
+          Open repository folder
         </button>
       ) : (
         <div className="github-form">
