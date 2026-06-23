@@ -26,13 +26,11 @@ declare global {
         repoPath?: string;
         branch?: string;
         command?: string;
-        endpointOverrides?: Record<string, Record<string, unknown>>;
+        endpointOverrides?: Record<string, unknown>;
       }) => Promise<SidecarStatus>;
       stopSidecar: () => Promise<SidecarStatus>;
       getSidecarStatus: () => Promise<SidecarStatus>;
-      setSidecarOverrides: (
-        overrides: Record<string, Record<string, unknown>>,
-      ) => Promise<SidecarStatus>;
+      setSidecarOverrides: (overrides: Record<string, unknown>) => Promise<SidecarStatus>;
       runVisualDiff: (request: VisualDiffRequest) => Promise<VisualDiffReport>;
       getChangedFiles: (request: {
         repoPath: string;

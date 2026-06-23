@@ -6,7 +6,13 @@
  * pre-canonicalized as `METHOD:path`.
  */
 
-export type EndpointOverrides = Record<string, Record<string, unknown>>;
+/**
+ * A captured/mocked response body. Any JSON value — objects, but also top-level
+ * arrays (list endpoints) and primitives. Served verbatim via `JSON.stringify`.
+ */
+export type MockBody = unknown;
+
+export type EndpointOverrides = Record<string, MockBody>;
 
 /**
  * Returns the canonical override key for a given method + route path.
@@ -15,6 +21,34 @@ export type EndpointOverrides = Record<string, Record<string, unknown>>;
  */
 export function canonicalOverrideKey(method: string, routePath: string): string {
   return `${method.toUpperCase()}:${routePath}`;
+}
+
+/**
+ * Collapse concrete dynamic path segments (numeric ids, UUIDs, and slug-style
+ * ids) to ":id" so list/detail navigation (`/users/1`, `/users/2`) yields a
+ * single mockable key that also matches a ":param" override.
+ *
+ * SHARED so runtime discovery (sidecar proxy) and capture (mockCapture) derive
+ * the IDENTICAL key for the same concrete path — otherwise captured bodies would
+ * not attach to discovered endpoints.
+ *
+ * The slug rule (>8 chars containing a digit) catches non-numeric/non-UUID ids
+ * (e.g. `prod_8f3k20a1`). It is a no-op when no such segment exists, and a fix
+ * when one does. Caveat: a long static segment that happens to contain a digit
+ * (e.g. `oauth2callback`) is over-collapsed — validated against the observed-
+ * endpoint expectations in `test:sidecar-mocks`.
+ */
+export function collapseDynamicSegments(pathname: string): string {
+  return pathname
+    .split('/')
+    .map((seg) => {
+      if (!seg) return seg;
+      if (/^\d+$/.test(seg)) return ':id';
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(seg)) return ':id';
+      if (seg.length > 8 && /\d/.test(seg) && /^[a-z0-9_-]+$/i.test(seg)) return ':id';
+      return seg;
+    })
+    .join('/');
 }
 
 /**
@@ -47,7 +81,7 @@ export function matchOverride(
   overrides: EndpointOverrides,
   method: string,
   pathname: string,
-): Record<string, unknown> | undefined {
+): MockBody | undefined {
   const m = method.toUpperCase();
 
   // 1. Exact match

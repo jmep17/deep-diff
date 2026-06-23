@@ -24,6 +24,10 @@ export interface EndpointField {
   example: string;
 }
 
+// A mock response body. Any JSON value — objects, but also top-level arrays
+// (list endpoints) and primitives. Mirror of electron/overrideMatcher.ts MockBody.
+export type MockBody = unknown;
+
 export interface EndpointDefinition {
   id: string;
   method: string;
@@ -33,7 +37,7 @@ export interface EndpointDefinition {
   status: number;
   confidence: 'high' | 'medium' | 'low';
   fields: EndpointField[];
-  mock: Record<string, unknown>;
+  mock: MockBody;
 }
 
 // User-editable settings persisted to userData/state.json.
@@ -53,7 +57,7 @@ export interface PersistedSettings {
 // - `mocksEnabled` is the master switch for the whole set.
 export interface PersistedState {
   version?: number;
-  mockEdits?: Record<string, Record<string, unknown>>;
+  mockEdits?: Record<string, MockBody>;
   disabledMocks?: string[];
   mocksEnabled?: boolean;
   settings?: PersistedSettings;
@@ -101,7 +105,10 @@ export interface VisualDiffRequest {
   routes?: string[];
   command?: string;
   mismatchTolerance?: number;
-  endpointOverrides?: Record<string, Record<string, unknown>>;
+  endpointOverrides?: Record<string, MockBody>;
+  // Keys (`METHOD:path`) the user explicitly edited — the diff pre-flight keeps
+  // these from being overwritten by freshly-captured real bodies.
+  userMockKeys?: string[];
 }
 
 export interface ChangedFilesRequest {

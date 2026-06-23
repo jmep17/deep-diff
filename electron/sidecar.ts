@@ -7,9 +7,15 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { EventEmitter } from 'node:events';
-import { canonicalOverrideKey, matchOverride, type EndpointOverrides } from './overrideMatcher.js';
+import {
+  canonicalOverrideKey,
+  collapseDynamicSegments,
+  matchOverride,
+  type EndpointOverrides,
+} from './overrideMatcher.js';
 import { detectAuth0Config } from './authConfigDetector.js';
 import { buildObservedEndpoint } from './endpointScanner.js';
+import { clearCaptures } from './mockCapture.js';
 import { installDependencies, type PackageManager } from './installDependencies.js';
 import { applyOverlay } from './repoOverlay.js';
 import { logInfo } from './logger.js';
@@ -37,21 +43,6 @@ let logSink: LogSink | undefined;
 // as mockable rows via `discoveryBus`. Reset per launch.
 const observedEndpoints = new Map<string, EndpointDefinition>();
 export const discoveryBus = new EventEmitter();
-
-// Collapse concrete dynamic segments (numeric ids, UUIDs) to ":id" so list/detail
-// navigation (/api/users/1, /api/users/2) yields a single mockable row whose key also
-// matches a ":param" override.
-function collapseDynamicSegments(pathname: string): string {
-  return pathname
-    .split('/')
-    .map((seg) =>
-      /^\d+$/.test(seg) ||
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(seg)
-        ? ':id'
-        : seg,
-    )
-    .join('/');
-}
 
 function isJsonResponse(contentType?: string | string[]): boolean {
   const value = Array.isArray(contentType) ? contentType.join(',') : (contentType ?? '');
@@ -350,6 +341,9 @@ export async function launchSidecar(request: SidecarLaunchRequest) {
 
     currentOverrides = request.endpointOverrides ?? {};
     observedEndpoints.clear();
+    // Fresh capture buffer per launch; real bodies accrue as the user browses
+    // (reported by the injected interceptor through the capture sink).
+    clearCaptures();
 
     // The proxy always fronts the dev server, even with zero overrides: in
     // pass-through mode it forwards every request unchanged while recording the

@@ -359,13 +359,19 @@ await assertThrows(
   'plain object',
 );
 await assertThrows(
-  'rejects endpointOverrides with non-object value',
+  'rejects endpointOverrides with a primitive value',
   () =>
     validateVisualDiffRequest(
       { ...validDiffBase, endpointOverrides: { 'GET:/api/x': 'notobject' } },
       roots,
     ),
-  'plain object',
+  'object or array',
+);
+await assertResolves('accepts endpointOverrides with a top-level array body', () =>
+  validateVisualDiffRequest(
+    { ...validDiffBase, endpointOverrides: { 'GET:/api/products': [{ id: 1 }, { id: 2 }] } },
+    roots,
+  ),
 );
 await assertResolves('accepts valid endpointOverrides', () =>
   validateVisualDiffRequest(

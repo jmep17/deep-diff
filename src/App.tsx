@@ -57,6 +57,7 @@ import type {
   ChangeProbe,
   DiffStatus,
   EndpointDefinition,
+  MockBody,
   RepositorySummary,
   ServerLogEntry,
   SidecarStatus,
@@ -140,7 +141,7 @@ function Toggle({
 // Reapply persisted per-endpoint mock edits onto a freshly scanned/seeded list.
 function withMockEdits(
   list: EndpointDefinition[],
-  edits: Record<string, Record<string, unknown>>,
+  edits: Record<string, MockBody>,
 ): EndpointDefinition[] {
   if (!Object.keys(edits).length) return list;
   return list.map((endpoint) => {
@@ -379,7 +380,7 @@ function App() {
   const [disabledMockKeys, setDisabledMockKeys] = useState<string[]>([]);
   // Per-endpoint edited mock bodies, keyed `METHOD:path`, reapplied onto freshly
   // scanned endpoints so edits survive a rescan/restart. Persisted to state.json.
-  const [mockEdits, setMockEdits] = useState<Record<string, Record<string, unknown>>>({});
+  const [mockEdits, setMockEdits] = useState<Record<string, MockBody>>({});
   // Latest mockEdits for use inside async scan handlers without stale closures.
   const mockEditsRef = useRef(mockEdits);
   mockEditsRef.current = mockEdits;
@@ -467,17 +468,30 @@ function App() {
     });
   }, []);
 
-  // Endpoints discovered at runtime through the sidecar proxy join the inventory as
-  // mockable rows. Dedupe by METHOD:path so a runtime hit never overrides a richer
-  // scanned definition, and reapply any saved per-endpoint mock edits.
+  // Endpoints discovered at runtime (sidecar proxy) or captured with a real body
+  // (network interceptor) join the inventory as mockable rows. New keys are added
+  // (reapplying saved edits); for an existing key, a freshly CAPTURED real body
+  // upgrades a synthetic mock in place — unless the user has edited it (their edit
+  // wins) or it's a body-less proxy-discovery hit (which never clobbers a richer
+  // scanned definition).
   useEffect(() => {
     if (!bridge?.onObservedEndpoints) return;
     return bridge.onObservedEndpoints((endpoint) => {
       setEndpoints((prev) => {
-        const key = `${endpoint.method}:${endpoint.path}`;
-        if (prev.some((existing) => `${existing.method}:${existing.path}` === key)) return prev;
-        const [withEdits] = withMockEdits([endpoint], mockEditsRef.current);
-        return [...prev, withEdits];
+        const key = `${endpoint.method.toUpperCase()}:${endpoint.path}`;
+        const idx = prev.findIndex(
+          (existing) => `${existing.method.toUpperCase()}:${existing.path}` === key,
+        );
+        if (idx === -1) {
+          const [withEdits] = withMockEdits([endpoint], mockEditsRef.current);
+          return [...prev, withEdits];
+        }
+        if (endpoint.framework !== 'observed (captured)' || mockEditsRef.current[key]) {
+          return prev;
+        }
+        const next = prev.slice();
+        next[idx] = { ...next[idx], mock: endpoint.mock, framework: endpoint.framework };
+        return next;
       });
     });
   }, []);
@@ -500,7 +514,7 @@ function App() {
   // user hasn't turned off, with its edited body (mockEdits) or generated fallback.
   const disabledSet = useMemo(() => new Set(disabledMockKeys), [disabledMockKeys]);
   const effectiveOverrides = useMemo(() => {
-    const overrides: Record<string, Record<string, unknown>> = {};
+    const overrides: Record<string, MockBody> = {};
     for (const endpoint of endpoints) {
       const key = `${endpoint.method.toUpperCase()}:${endpoint.path}`;
       if (disabledSet.has(key)) continue;
@@ -687,6 +701,9 @@ function App() {
         viewport,
         mismatchTolerance: sensitivity,
         endpointOverrides: mocksEnabled ? effectiveOverrides : undefined,
+        // Keys the user edited — the diff pre-flight won't overwrite these with
+        // freshly-captured real bodies.
+        userMockKeys: Object.keys(mockEdits),
       });
       setDiffReport(report);
       setReports((prev) => [report, ...prev]);
@@ -774,7 +791,7 @@ function App() {
 
   // Edit a mock body. Recorded in mockEdits (survives rescan/restart) and folded into
   // the live inventory so the editor and effectiveOverrides reflect it immediately.
-  function editEndpointMock(endpoint: EndpointDefinition, body: Record<string, unknown>) {
+  function editEndpointMock(endpoint: EndpointDefinition, body: MockBody) {
     const key = `${endpoint.method.toUpperCase()}:${endpoint.path}`;
     setEndpoints((current) =>
       current.map((item) => (item.id === endpoint.id ? { ...item, mock: body } : item)),
@@ -1173,10 +1190,10 @@ function MockBodyEditor({
   hint,
   onSave,
 }: {
-  body: Record<string, unknown>;
+  body: MockBody;
   editable: boolean;
   hint?: string;
-  onSave: (body: Record<string, unknown>) => void;
+  onSave: (body: MockBody) => void;
 }) {
   const pretty = useMemo(() => JSON.stringify(body ?? {}, null, 2), [body]);
   const [editing, setEditing] = useState(false);
@@ -1197,11 +1214,11 @@ function MockBodyEditor({
       setError('Invalid JSON.');
       return;
     }
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      setError('Mock body must be a JSON object.');
+    if (parsed === null || typeof parsed !== 'object') {
+      setError('Mock body must be a JSON object or array.');
       return;
     }
-    onSave(parsed as Record<string, unknown>);
+    onSave(parsed);
     setEditing(false);
     setError(null);
   }
@@ -1282,7 +1299,7 @@ function MockInventory({
   onToggleMocksEnabled: (value: boolean) => void;
   onToggleMock: (endpoint: EndpointDefinition) => void;
   onSetAll: (enabled: boolean) => void;
-  onEditMock: (endpoint: EndpointDefinition, body: Record<string, unknown>) => void;
+  onEditMock: (endpoint: EndpointDefinition, body: MockBody) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -1744,7 +1761,7 @@ function SidecarPanel({
   baseRef: string;
   targetRef: string;
   mocksEnabled: boolean;
-  effectiveOverrides: Record<string, Record<string, unknown>>;
+  effectiveOverrides: Record<string, MockBody>;
   disabledKeys: Set<string>;
   onToggleMocksEnabled: (value: boolean) => void;
   onToggleMock: (endpoint: EndpointDefinition) => void;

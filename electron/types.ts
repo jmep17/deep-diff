@@ -1,4 +1,4 @@
-import type { EndpointOverrides } from './overrideMatcher.js';
+import type { EndpointOverrides, MockBody } from './overrideMatcher.js';
 import type { LogServer, LogSource, LogStream, ServerLogEntry } from './serverLogs.js';
 
 // Re-exported so the shared log shapes have a single source of truth in the main
@@ -54,7 +54,7 @@ export interface EndpointDefinition {
   status: number;
   confidence: 'high' | 'medium' | 'low';
   fields: EndpointField[];
-  mock: Record<string, unknown>;
+  mock: MockBody;
 }
 
 export interface SidecarLaunchRequest {
@@ -91,7 +91,10 @@ export interface VisualDiffRequest {
   routes?: string[];
   command?: string;
   mismatchTolerance?: number;
-  endpointOverrides?: Record<string, Record<string, unknown>>;
+  endpointOverrides?: EndpointOverrides;
+  // Keys (`METHOD:path`) the user explicitly edited. The diff pre-flight keeps these
+  // from being overwritten by freshly-captured real bodies (user intent wins).
+  userMockKeys?: string[];
   // Absolute path to a per-repo overlay folder, resolved and set by the main process
   // (never supplied by the renderer). Its contents are copied over each capture worktree.
   overlayDir?: string;

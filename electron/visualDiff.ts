@@ -1,4 +1,4 @@
-import { BrowserWindow, nativeImage, session, net as electronNet } from 'electron';
+import { BrowserWindow, nativeImage, net as electronNet } from 'electron';
 import { spawn, type ChildProcessWithoutNullStreams, execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
@@ -16,6 +16,8 @@ import type {
 } from './types.js';
 import { scanVisualRoutes, selectRoutes, type VisualRoute } from './routeDetection.js';
 import { matchOverride, type EndpointOverrides } from './overrideMatcher.js';
+import { clearCaptures, getCaptures } from './mockCapture.js';
+import { attachCaptureSink } from './captureSink.js';
 import { detectAuth0Config } from './authConfigDetector.js';
 import { installDependencies, type PackageManager } from './installDependencies.js';
 import { applyOverlay } from './repoOverlay.js';
@@ -414,6 +416,34 @@ async function capturePage(
   };
 }
 
+/**
+ * Load each route once on the BASE server (no mocks, real passthrough) so the
+ * injected capture interceptor records real response bodies BEFORE the
+ * base/target comparison. No screenshot; a slightly longer settle than
+ * capturePage lets async fetch/XHR calls complete and report.
+ */
+async function preflightCaptureRoutes(
+  window: BrowserWindow,
+  baseUrl: string,
+  routes: VisualRoute[],
+): Promise<void> {
+  for (const route of routes) {
+    try {
+      currentCaptureServer = 'base';
+      await window.loadURL(new URL(route.urlPath, baseUrl).toString());
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    } catch {
+      /* a route that fails to load just yields no captures for it */
+    }
+  }
+}
+
+// Resolved relative to the compiled visualDiff.js in dist-electron/.
+const CAPTURE_PRELOAD = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  'capture-preload.cjs',
+);
+
 function createCaptureWindow(viewport: VisualDiffViewport) {
   const window = new BrowserWindow({
     show: false,
@@ -425,6 +455,9 @@ function createCaptureWindow(viewport: VisualDiffViewport) {
       // (session.protocol.handle) is scoped to THIS window's session and never
       // touches the app's default session or the main window's network.
       partition: 'visual-diff-capture',
+      // Installs the network-capture interceptor in the page main world at
+      // document-start (sandbox-safe — it only injects a <script> + reads DOM).
+      preload: CAPTURE_PRELOAD,
       contextIsolation: true,
       nodeIntegration: false,
       // Untrusted target-repo pages render here; keep them OS-sandboxed so a
@@ -501,6 +534,8 @@ export async function runVisualDiff(request: VisualDiffRequest): Promise<VisualD
   // returned `logs` snapshot is bounded.
   const sink = new LogSink(runId, 'diff', `diff-${runId}.log`);
   const viewport = request.viewport ?? defaultViewport;
+  // Fresh capture buffer per run; the pre-flight below fills it with real bodies.
+  clearCaptures();
 
   let baseServer: RunningServer | undefined;
   let targetServer: RunningServer | undefined;
@@ -531,6 +566,9 @@ export async function runVisualDiff(request: VisualDiffRequest): Promise<VisualD
     trace('runVisualDiff servers ready');
     const routeReports: VisualDiffRouteReport[] = [];
     const captureWindow = createCaptureWindow(viewport);
+    // Record real response bodies the injected interceptor reports (from the
+    // pre-flight and from each rendered page) into the capture buffer.
+    attachCaptureSink(captureWindow.webContents.session);
 
     // Capture the rendered page's browser console (JS errors, failed fetches) —
     // the failure mode where the server returns 200 but the page is blank/broken.
@@ -542,19 +580,45 @@ export async function runVisualDiff(request: VisualDiffRequest): Promise<VisualD
       captureWindow.webContents.executeJavaScript(CONSOLE_PATCH_SCRIPT).catch(() => undefined);
     });
 
-    // Apply mock profile overrides via session-level HTTP interception.
-    // Gated on non-empty overrides so the default (no-override) path is
-    // byte-for-byte unchanged.  bypassCustomProtocolHandlers:true on the
-    // passthrough is mandatory — without it net.fetch re-enters this handler
-    // and hangs the diff.
-    const overrides: EndpointOverrides = request.endpointOverrides ?? {};
+    // Capture pre-flight: load each route on the BASE server with NO mocks so the
+    // injected interceptor records real response bodies BEFORE the comparison.
+    // This is what lets the very first (cold) diff render with real data.
+    await preflightCaptureRoutes(captureWindow, base.url, routes);
+
+    // Freeze the override set served identically to BOTH sides (the determinism
+    // invariant: base and target get byte-identical responses per call).
+    // Precedence: a user-edited mock (userMockKeys) wins; else a freshly-captured
+    // REAL body wins over the request's (possibly synthetic) body; else the
+    // request body fills in.
+    const captured = getCaptures();
+    const capturedCount = Object.keys(captured).length;
+    // Make a silent capture no-op visible (CSP block, no same-doc JSON calls, …)
+    // rather than letting it masquerade as success behind synthetic fallbacks.
+    sink.append(
+      'base',
+      'system',
+      capturedCount > 0
+        ? `capture: recorded ${capturedCount} real API ${capturedCount === 1 ? 'body' : 'bodies'} during pre-flight`
+        : 'capture: no real API bodies recorded during pre-flight — falling back to synthetic mocks',
+    );
+    const requestOverrides = request.endpointOverrides ?? {};
+    const userKeys = new Set(request.userMockKeys ?? []);
+    const overrides: EndpointOverrides = { ...captured };
+    for (const [key, body] of Object.entries(requestOverrides)) {
+      if (userKeys.has(key) || !(key in overrides)) overrides[key] = body;
+    }
+
+    // Serve the frozen overrides via session-level HTTP interception. Gated on a
+    // non-empty set so a genuine no-mock run stays byte-for-byte unchanged.
+    // bypassCustomProtocolHandlers:true on the passthrough is mandatory — without
+    // it net.fetch re-enters this handler and hangs the diff.
     const interceptionActive = Object.keys(overrides).length > 0;
     const ses = captureWindow.webContents.session;
     if (interceptionActive) {
       ses.protocol.handle('http', async (req) => {
         const pathname = new URL(req.url).pathname;
         const mocked = matchOverride(overrides, req.method, pathname);
-        if (mocked) {
+        if (mocked !== undefined) {
           sink.append(currentCaptureServer, 'network', `${req.method} ${pathname} → 200 (mock)`);
           return new Response(JSON.stringify(mocked), {
             status: 200,

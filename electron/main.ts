@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
@@ -53,6 +53,8 @@ import {
   stopSidecar,
 } from './sidecar.js';
 import { runVisualDiff } from './visualDiff.js';
+import { captureBus } from './mockCapture.js';
+import { attachCaptureSink, registerCaptureScheme } from './captureSink.js';
 import {
   deleteOverlayFile,
   ensureOverlayScaffold,
@@ -64,6 +66,12 @@ import { getLogDir, logBus } from './serverLogs.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Capture preload (installs the network-capture interceptor in captured pages).
+const CAPTURE_PRELOAD = path.join(__dirname, 'capture-preload.cjs');
+// Register the capture scheme before the app `ready` event (privileges lock in at
+// startup); the report sinks are attached per-session in whenReady / visualDiff.
+registerCaptureScheme();
 
 // Root for per-repo overlay folders: test-only files Deep Diff copies over a capture
 // worktree (e.g. an auth-SDK mock alias). Overridable via env for tests/power users;
@@ -212,7 +220,11 @@ async function createWindow() {
     }
   };
   mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
-    delete webPreferences.preload;
+    // Force OUR capture preload (a main-process path, never renderer-supplied) so
+    // the network-capture interceptor is installed in the preview page before its
+    // first request. This replaces any renderer-set preload — the renderer still
+    // cannot inject an arbitrary one.
+    webPreferences.preload = CAPTURE_PRELOAD;
     webPreferences.nodeIntegration = false;
     webPreferences.contextIsolation = true;
     webPreferences.sandbox = true;
@@ -252,6 +264,18 @@ app.whenReady().then(async () => {
   // Stream endpoints discovered at runtime through the sidecar proxy so they join
   // the renderer's (mockable) inventory. Main window only, same rationale as above.
   discoveryBus.on('endpoint', (endpoint) => {
+    if (activeWindow && !activeWindow.isDestroyed()) {
+      activeWindow.webContents.send('endpoints:observed', endpoint);
+    }
+  });
+
+  // Record the real response bodies the capture interceptor reports from the
+  // sidecar preview <webview> (its dedicated partition session).
+  attachCaptureSink(session.fromPartition('sidecar-preview'));
+
+  // Endpoints first captured with a real body join the inventory like proxy-
+  // discovered ones — same channel; the renderer merges and reapplies user edits.
+  captureBus.on('endpoint', (endpoint) => {
     if (activeWindow && !activeWindow.isDestroyed()) {
       activeWindow.webContents.send('endpoints:observed', endpoint);
     }

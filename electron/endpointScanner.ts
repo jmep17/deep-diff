@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
 import type { EndpointDefinition, EndpointField } from './types.js';
+import type { MockBody } from './overrideMatcher.js';
 
 const ignoredDirectories = new Set([
   '.git',
@@ -164,12 +165,23 @@ function buildEndpoint(
 
 /**
  * Build an inventory entry for an endpoint observed at runtime through the sidecar
- * proxy (no source file). There's no response body to infer fields from, so it uses
- * the same generic {id,status} fallback mock as an unparsed definition. High
- * confidence — it's a real request the running app actually made.
+ * proxy or the capture interceptor (no source file). High confidence — it's a real
+ * request the running app actually made. When a captured response `mock` is given
+ * (from the network interceptor), it becomes the endpoint's realistic mock; without
+ * one it keeps the generic {id,status} fallback (e.g. proxy discovery with no body).
  */
-export function buildObservedEndpoint(method: string, routePath: string): EndpointDefinition {
-  return buildEndpoint(method.toUpperCase(), routePath, '', 'observed (runtime)', '', 'high');
+export function buildObservedEndpoint(
+  method: string,
+  routePath: string,
+  mock?: MockBody,
+): EndpointDefinition {
+  // Tag captured rows distinctly so the renderer can upgrade an existing
+  // endpoint's synthetic mock to a real captured body (proxy discovery, which
+  // has no body, stays 'observed (runtime)').
+  const framework = mock !== undefined ? 'observed (captured)' : 'observed (runtime)';
+  const endpoint = buildEndpoint(method.toUpperCase(), routePath, '', framework, '', 'high');
+  if (mock !== undefined) endpoint.mock = mock;
+  return endpoint;
 }
 
 function detectCodeRoutes(repoPath: string, filePath: string, source: string) {

@@ -11,8 +11,24 @@
 //
 // It writes the report JSON to DEEP_DISH_OUT (robust against stdout noise) and
 // also prints a single JSON line to stdout.
-const { app } = require('electron');
+const { app, protocol } = require('electron');
 const fs = require('node:fs');
+
+// Register the capture scheme before app `ready` so the visual-diff capture
+// interceptor can report real bodies (mirrors what main.ts does in the app).
+// Matches CAPTURE_SCHEME in electron/captureSink.ts.
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'dds-capture',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      bypassCSP: true,
+    },
+  },
+]);
 
 const repoPath = process.env.DEEP_DISH_REPO;
 const baseRef = process.env.DEEP_DISH_BASE || 'main';
@@ -48,6 +64,12 @@ app.whenReady().then(async () => {
       viewport: { width: 1280, height: 900 },
     });
 
+    // Surface what the capture interceptor recorded during the run's pre-flight so
+    // the scenario test can assert capture actually produced real bodies (a green
+    // diff alone doesn't prove that — it only proves determinism held).
+    const { getCaptures, captureCount } = await import('../../dist-electron/mockCapture.js');
+    const capturedKeys = Object.keys(getCaptures());
+
     // Optionally dump before/after/diff PNGs for visual inspection.
     const imagesDir = process.env.DEEP_DISH_IMAGES_DIR;
     if (imagesDir) {
@@ -71,6 +93,8 @@ app.whenReady().then(async () => {
       targetRef,
       totalRoutes: report.totalRoutes,
       changedRoutes: report.changedRoutes,
+      capturedCount: captureCount(),
+      capturedKeys,
       durationMs: report.durationMs,
       routeStatuses: report.routes.map((route) => ({
         path: route.path,

@@ -19,6 +19,7 @@ import type {
   SidecarLaunchRequest,
   VisualDiffRequest,
 } from './types.js';
+import type { EndpointOverrides, MockBody } from './overrideMatcher.js';
 
 // ---------------------------------------------------------------------------
 // Primitive guards
@@ -132,16 +133,26 @@ function assertPlainObject(raw: unknown, label: string): Record<string, unknown>
 }
 
 /**
- * Validates an endpoint-overrides map: a plain object whose keys are
- * "METHOD:path" strings and whose values are plain objects (body-only
- * replacement JSON). Returns a fresh, shape-checked copy. Shared by the
+ * Asserts a value is usable as a mock response body — a JSON object or a
+ * top-level array (list endpoints), but not a bare primitive or null. Mirrors
+ * what `recordCapture` stores and the renderer's mock editor accepts.
+ */
+function assertJsonValue(value: unknown, context: string): MockBody {
+  if (value !== null && typeof value === 'object') return value;
+  throw new Error(`${context} must be a JSON object or array.`);
+}
+
+/**
+ * Validates an endpoint-overrides map: a plain object keyed "METHOD:path" whose
+ * values are mock response bodies (any JSON value — objects, but also top-level
+ * arrays for list endpoints). Returns a fresh, shape-checked copy. Shared by the
  * sidecar-launch, visual-diff, and live `sidecar:setOverrides` handlers.
  */
-export function validateEndpointOverrides(raw: unknown): Record<string, Record<string, unknown>> {
+export function validateEndpointOverrides(raw: unknown): EndpointOverrides {
   const outer = assertPlainObject(raw, 'endpointOverrides');
-  const overrides: Record<string, Record<string, unknown>> = {};
+  const overrides: EndpointOverrides = {};
   for (const [key, body] of Object.entries(outer)) {
-    overrides[key] = assertPlainObject(body, `endpointOverrides["${key}"]`);
+    overrides[key] = assertJsonValue(body, `endpointOverrides["${key}"]`);
   }
   return overrides;
 }
@@ -229,6 +240,17 @@ export async function validateVisualDiffRequest(
       ? validateEndpointOverrides(obj.endpointOverrides)
       : undefined;
 
+  // userMockKeys: optional string[] (keys the user explicitly edited)
+  let userMockKeys: string[] | undefined;
+  if (obj.userMockKeys !== undefined) {
+    if (!Array.isArray(obj.userMockKeys)) {
+      throw new Error('userMockKeys must be an array.');
+    }
+    userMockKeys = (obj.userMockKeys as unknown[]).map((k, i) =>
+      requireNonEmptyString(k, `userMockKeys[${i}]`),
+    );
+  }
+
   return {
     repoPath,
     baseRef,
@@ -238,6 +260,7 @@ export async function validateVisualDiffRequest(
     viewport,
     routes,
     endpointOverrides,
+    userMockKeys,
   };
 }
 

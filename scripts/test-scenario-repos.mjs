@@ -168,6 +168,16 @@ async function testScenario(name) {
     'every route produced before/after/diff images',
   );
 
+  // A green diff alone doesn't prove capture worked (control routes are byte-
+  // identical whether capture served real bodies or produced nothing). Assert the
+  // interceptor actually recorded real bodies during the pre-flight — the
+  // "valid mocks by default" requirement.
+  assert(
+    report.capturedCount > 0,
+    'capture interceptor recorded real API bodies during the run',
+    `${report.capturedCount} captured: [${(report.capturedKeys ?? []).join(', ')}]`,
+  );
+
   const changed = report.routeStatuses
     .filter((route) => route.status === 'failed')
     .map((route) => route.path)
