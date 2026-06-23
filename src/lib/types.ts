@@ -68,7 +68,7 @@ export interface PersistedState {
 // separate compiler configs and can't import across the main/renderer boundary).
 export type LogSource = 'diff' | 'sidecar';
 export type LogServer = 'base' | 'target' | 'sidecar';
-export type LogStream = 'stdout' | 'stderr' | 'console' | 'install' | 'system';
+export type LogStream = 'stdout' | 'stderr' | 'console' | 'install' | 'system' | 'network';
 
 export interface ServerLogEntry {
   runId: string;

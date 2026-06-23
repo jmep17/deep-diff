@@ -18,7 +18,7 @@ import path from 'node:path';
 
 export type LogSource = 'diff' | 'sidecar';
 export type LogServer = 'base' | 'target' | 'sidecar';
-export type LogStream = 'stdout' | 'stderr' | 'console' | 'install' | 'system';
+export type LogStream = 'stdout' | 'stderr' | 'console' | 'install' | 'system' | 'network';
 
 export interface ServerLogEntry {
   /** Per-run id (Date.now() string) — groups lines from one launch / diff run. */

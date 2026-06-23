@@ -2160,6 +2160,14 @@ select {
   font-style: italic;
 }
 
+.log-line.is-network .log-text {
+  color: #7fd6c2;
+}
+
+.log-line.is-network .log-tag {
+  color: #7fd6c2;
+}
+
 .log-pre {
   color: #8b8478;
 }

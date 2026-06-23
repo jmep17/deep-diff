@@ -307,6 +307,7 @@ function LogDrawer({
                 'log-line',
                 isError(entry) && 'is-error',
                 entry.stream === 'system' && 'is-system',
+                entry.stream === 'network' && 'is-network',
                 entry.level === 'warning' && 'is-warn',
               )}
             >

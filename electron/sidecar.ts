@@ -32,6 +32,7 @@ let logSink: LogSink | undefined;
 function startProxyServer(
   targetPort: number,
   getOverrides: () => EndpointOverrides,
+  log?: (text: string) => void,
 ): Promise<{ server: http.Server; port: number }> {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
@@ -46,6 +47,7 @@ function startProxyServer(
           'Content-Length': Buffer.byteLength(json),
         });
         res.end(json);
+        log?.(`${method} ${pathname} → 200 (mock)`);
         return;
       }
 
@@ -60,12 +62,14 @@ function startProxyServer(
         (proxyRes) => {
           res.writeHead(proxyRes.statusCode ?? 200, proxyRes.headers);
           proxyRes.pipe(res, { end: true });
+          log?.(`${method} ${pathname} → ${proxyRes.statusCode ?? 200} (server)`);
         },
       );
 
       proxyReq.on('error', (err) => {
         if (!res.headersSent) res.writeHead(502);
         res.end(`Proxy error: ${err.message}`);
+        log?.(`${method} ${pathname} → 502 (proxy error: ${err.message})`);
       });
 
       req.pipe(proxyReq, { end: true });
@@ -301,7 +305,11 @@ export async function launchSidecar(request: SidecarLaunchRequest) {
 
     let exposedUrl = `http://127.0.0.1:${port}`;
     if (hasOverrides) {
-      const proxy = await startProxyServer(port, () => currentOverrides);
+      const proxy = await startProxyServer(
+        port,
+        () => currentOverrides,
+        (text) => sink.append('sidecar', 'network', text),
+      );
       proxyServer = proxy.server;
       exposedUrl = `http://127.0.0.1:${proxy.port}`;
     }
@@ -375,7 +383,11 @@ export async function setSidecarOverrides(overrides: EndpointOverrides) {
     if (status.port === undefined) {
       throw new Error('Sidecar port is unknown; cannot start the mock proxy.');
     }
-    const proxy = await startProxyServer(status.port, () => currentOverrides);
+    const proxy = await startProxyServer(
+      status.port,
+      () => currentOverrides,
+      (text) => logSink?.append('sidecar', 'network', text),
+    );
     proxyServer = proxy.server;
     status = { ...status, url: `http://127.0.0.1:${proxy.port}` };
   }
