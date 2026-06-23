@@ -31,7 +31,13 @@ import {
   stopSidecar,
 } from './sidecar.js';
 import { runVisualDiff } from './visualDiff.js';
-import { ensureOverlayScaffold } from './repoOverlay.js';
+import {
+  deleteOverlayFile,
+  ensureOverlayScaffold,
+  listOverlayFiles,
+  readOverlayFile,
+  writeOverlayFile,
+} from './repoOverlay.js';
 import { getLogDir, logBus } from './serverLogs.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -50,6 +56,15 @@ function overlaysRoot() {
 // atomically (tmp + rename) so a crash mid-write can't corrupt it.
 function statePath() {
   return process.env.DEEP_DISH_STATE_FILE ?? path.join(app.getPath('userData'), 'state.json');
+}
+
+// Validate a renderer-supplied overlay-relative path: a non-empty string, no NUL,
+// not absolute. (`..` traversal is additionally rejected when resolved in repoOverlay.)
+function overlayRelPath(raw: unknown): string {
+  const rel = (raw as { relPath?: unknown })?.relPath;
+  if (typeof rel !== 'string' || !rel.trim()) throw new Error('Missing overlay file path.');
+  if (rel.includes('\0') || path.isAbsolute(rel)) throw new Error('Invalid overlay file path.');
+  return rel;
 }
 
 // Resolve (and scaffold + document) the repo's overlay folder. Overlays are opt-in
@@ -287,6 +302,46 @@ app.whenReady().then(async () => {
       if (err) logError('overlay:open', err);
     }
     return dir;
+  });
+
+  // Overlay-folder file editing. The overlay folder is app-owned storage under
+  // userData (not the user's repo); repoPath is validated against authorizedRoots
+  // and the relative path is confined to that repo's overlay folder in repoOverlay.
+  registerHandler('overlay:list', async (_event, raw) => {
+    const repoPath = await assertAuthorizedRepoPath(
+      (raw as { repoPath?: unknown })?.repoPath,
+      authorizedRoots,
+    );
+    return listOverlayFiles(overlaysRoot(), repoPath);
+  });
+
+  registerHandler('overlay:readFile', async (_event, raw) => {
+    const repoPath = await assertAuthorizedRepoPath(
+      (raw as { repoPath?: unknown })?.repoPath,
+      authorizedRoots,
+    );
+    return readOverlayFile(overlaysRoot(), repoPath, overlayRelPath(raw));
+  });
+
+  registerHandler('overlay:writeFile', async (_event, raw) => {
+    const repoPath = await assertAuthorizedRepoPath(
+      (raw as { repoPath?: unknown })?.repoPath,
+      authorizedRoots,
+    );
+    const content = (raw as { content?: unknown })?.content;
+    if (typeof content !== 'string') throw new Error('Overlay file content must be a string.');
+    if (content.length > 2_000_000) throw new Error('Overlay file too large.');
+    await writeOverlayFile(overlaysRoot(), repoPath, overlayRelPath(raw), content);
+    return listOverlayFiles(overlaysRoot(), repoPath);
+  });
+
+  registerHandler('overlay:deleteFile', async (_event, raw) => {
+    const repoPath = await assertAuthorizedRepoPath(
+      (raw as { repoPath?: unknown })?.repoPath,
+      authorizedRoots,
+    );
+    await deleteOverlayFile(overlaysRoot(), repoPath, overlayRelPath(raw));
+    return listOverlayFiles(overlaysRoot(), repoPath);
   });
 
   registerHandler('changes:files', async (_event, raw) => {

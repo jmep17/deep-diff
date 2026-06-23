@@ -65,6 +65,11 @@ declare global {
       // Load/save persisted UI state (profiles, edited mocks, settings).
       loadState: () => Promise<PersistedState>;
       saveState: (state: PersistedState) => Promise<boolean>;
+      // Overlay-folder config files (app-owned userData/overlays/<repo>).
+      listOverlayFiles: (repoPath: string) => Promise<string[]>;
+      readOverlayFile: (repoPath: string, relPath: string) => Promise<string>;
+      writeOverlayFile: (repoPath: string, relPath: string, content: string) => Promise<string[]>;
+      deleteOverlayFile: (repoPath: string, relPath: string) => Promise<string[]>;
     };
   }
 

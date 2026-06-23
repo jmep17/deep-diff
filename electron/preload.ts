@@ -40,4 +40,12 @@ contextBridge.exposeInMainWorld('deepDiff', {
   // Persisted UI state (profiles, edited mock bodies, settings) in userData.
   loadState: () => ipcRenderer.invoke('state:load'),
   saveState: (state: unknown) => ipcRenderer.invoke('state:save', state),
+  // Overlay-folder config files (app-owned storage under userData/overlays).
+  listOverlayFiles: (repoPath: string) => ipcRenderer.invoke('overlay:list', { repoPath }),
+  readOverlayFile: (repoPath: string, relPath: string) =>
+    ipcRenderer.invoke('overlay:readFile', { repoPath, relPath }),
+  writeOverlayFile: (repoPath: string, relPath: string, content: string) =>
+    ipcRenderer.invoke('overlay:writeFile', { repoPath, relPath, content }),
+  deleteOverlayFile: (repoPath: string, relPath: string) =>
+    ipcRenderer.invoke('overlay:deleteFile', { repoPath, relPath }),
 });

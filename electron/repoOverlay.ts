@@ -39,6 +39,68 @@ async function listFilesRecursive(root: string, prefix = ''): Promise<string[]> 
 }
 
 /**
+ * Resolve a repo-relative overlay path to an absolute path confined to the repo's overlay
+ * folder. Rejects absolute paths and `..` traversal that would escape the folder.
+ */
+function resolveOverlayChild(overlayDir: string, relPath: string): string {
+  const target = path.resolve(overlayDir, relPath);
+  const rootWithSep = overlayDir.endsWith(path.sep) ? overlayDir : overlayDir + path.sep;
+  if (target !== overlayDir && !target.startsWith(rootWithSep)) {
+    throw new Error('Path escapes overlay folder.');
+  }
+  return target;
+}
+
+/** List repo-relative overlay files (excluding the reserved README). [] if none. */
+export async function listOverlayFiles(overlaysRoot: string, repoPath: string): Promise<string[]> {
+  const dir = overlayDirForRepo(overlaysRoot, repoPath);
+  try {
+    const files = await listFilesRecursive(dir);
+    return files.filter((rel) => rel !== OVERLAY_README_NAME).sort();
+  } catch {
+    return [];
+  }
+}
+
+/** Read one overlay file's text content. */
+export async function readOverlayFile(
+  overlaysRoot: string,
+  repoPath: string,
+  relPath: string,
+): Promise<string> {
+  const target = resolveOverlayChild(overlayDirForRepo(overlaysRoot, repoPath), relPath);
+  return fs.readFile(target, 'utf8');
+}
+
+/** Write one overlay file (creating parent dirs). The reserved README is not writable. */
+export async function writeOverlayFile(
+  overlaysRoot: string,
+  repoPath: string,
+  relPath: string,
+  content: string,
+): Promise<void> {
+  if (path.basename(relPath) === OVERLAY_README_NAME) {
+    throw new Error('That file name is reserved.');
+  }
+  const target = resolveOverlayChild(overlayDirForRepo(overlaysRoot, repoPath), relPath);
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  await fs.writeFile(target, content, 'utf8');
+}
+
+/** Delete one overlay file. The reserved README is not deletable. */
+export async function deleteOverlayFile(
+  overlaysRoot: string,
+  repoPath: string,
+  relPath: string,
+): Promise<void> {
+  if (path.basename(relPath) === OVERLAY_README_NAME) {
+    throw new Error('That file name is reserved.');
+  }
+  const target = resolveOverlayChild(overlayDirForRepo(overlaysRoot, repoPath), relPath);
+  await fs.rm(target, { force: true });
+}
+
+/**
  * Copy the contents of `overlayDir` over `worktreePath`, mirroring the repo root and
  * overwriting existing files (whole-file, never merged). The overlay folder lives only in
  * Deep Diff's own storage and is applied only to throwaway capture worktrees, so it never

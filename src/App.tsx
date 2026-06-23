@@ -1011,6 +1011,7 @@ function App() {
             onChangeGithubToken={setGithubToken}
             onChangeViewport={setViewport}
             onChangeSensitivity={setSensitivity}
+            repoPath={selectedRepo.path ?? ''}
           />
         )}
       </main>
@@ -2364,6 +2365,155 @@ function ReportsView({ reports }: { reports: VisualDiffReport[] }) {
   );
 }
 
+// Browse/edit/create/delete the per-repo overlay config files (app-owned storage
+// under userData/overlays/<repo>) directly in the UI — no Finder round-trip.
+function OverlayEditor({ repoPath }: { repoPath: string }) {
+  const available = Boolean(bridge?.listOverlayFiles && repoPath);
+  const [files, setFiles] = useState<string[]>([]);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [content, setContent] = useState('');
+  const [dirty, setDirty] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  const [newName, setNewName] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!available) return;
+    bridge!
+      .listOverlayFiles(repoPath)
+      .then((list) => {
+        if (!cancelled) setFiles(list);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [available, repoPath]);
+
+  async function open(file: string) {
+    if (!bridge?.readOverlayFile) return;
+    try {
+      const text = await bridge.readOverlayFile(repoPath, file);
+      setSelected(file);
+      setContent(text);
+      setDirty(false);
+      setStatus(null);
+    } catch {
+      setStatus('Could not read file.');
+    }
+  }
+
+  async function save() {
+    if (!bridge?.writeOverlayFile || !selected) return;
+    try {
+      setFiles(await bridge.writeOverlayFile(repoPath, selected, content));
+      setDirty(false);
+      setStatus('Saved.');
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Save failed.');
+    }
+  }
+
+  async function create() {
+    const name = newName.trim();
+    if (!bridge?.writeOverlayFile || !name) return;
+    try {
+      setFiles(await bridge.writeOverlayFile(repoPath, name, ''));
+      setNewName('');
+      await open(name);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Create failed.');
+    }
+  }
+
+  async function remove(file: string) {
+    if (!bridge?.deleteOverlayFile) return;
+    try {
+      setFiles(await bridge.deleteOverlayFile(repoPath, file));
+      if (selected === file) {
+        setSelected(null);
+        setContent('');
+        setDirty(false);
+      }
+    } catch {
+      setStatus('Delete failed.');
+    }
+  }
+
+  if (!available) {
+    return (
+      <p className="settings-overlay-empty">Select a local repository to edit its overlay files.</p>
+    );
+  }
+
+  return (
+    <div className="overlay-editor">
+      <div className="overlay-files">
+        {files.length === 0 && <p className="overlay-empty">No overlay files yet.</p>}
+        {files.map((file) => (
+          <div key={file} className={cx('overlay-file', selected === file && 'active')}>
+            <button type="button" className="overlay-file-name" onClick={() => open(file)}>
+              {file}
+            </button>
+            <button
+              type="button"
+              className="overlay-file-del"
+              aria-label={`Delete ${file}`}
+              onClick={() => remove(file)}
+            >
+              <Trash2 size={13} />
+            </button>
+          </div>
+        ))}
+        <div className="overlay-new">
+          <input
+            value={newName}
+            placeholder="path/to/file.ts"
+            onChange={(event) => setNewName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') void create();
+            }}
+          />
+          <button type="button" className="ghost-button" onClick={() => void create()}>
+            <Plus size={14} /> New
+          </button>
+        </div>
+      </div>
+
+      <div className="overlay-content">
+        {selected ? (
+          <>
+            <div className="overlay-content-head">
+              <code>{selected}</code>
+              <button
+                type="button"
+                className="primary-action"
+                disabled={!dirty}
+                onClick={() => void save()}
+              >
+                Save
+              </button>
+            </div>
+            <textarea
+              className="overlay-textarea"
+              value={content}
+              spellCheck={false}
+              onChange={(event) => {
+                setContent(event.target.value);
+                setDirty(true);
+                setStatus(null);
+              }}
+            />
+            {status && <p className="overlay-status">{status}</p>}
+          </>
+        ) : (
+          <p className="overlay-empty">Pick a file to edit, or create one.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SettingsView({
   workspacePath,
   githubOrg,
@@ -2374,6 +2524,7 @@ function SettingsView({
   onChangeGithubToken,
   onChangeViewport,
   onChangeSensitivity,
+  repoPath,
 }: {
   workspacePath: string;
   githubOrg: string;
@@ -2384,6 +2535,7 @@ function SettingsView({
   onChangeGithubToken: (value: string) => void;
   onChangeViewport: (value: { width: number; height: number }) => void;
   onChangeSensitivity: (value: number) => void;
+  repoPath: string;
 }) {
   const sensitivityPct =
     sensitivity < 0.01 ? (sensitivity * 100).toFixed(1) : String(Math.round(sensitivity * 100));
@@ -2471,6 +2623,14 @@ function SettingsView({
             <small>Pixel-diff tolerance; lower is stricter.</small>
           </label>
         </div>
+      </section>
+
+      <section className="panel-section">
+        <div className="section-heading">
+          <h2>Overlay files</h2>
+          <p>Per-repo files copied over each worktree to bypass capture blockers.</p>
+        </div>
+        <OverlayEditor repoPath={repoPath} />
       </section>
     </div>
   );
