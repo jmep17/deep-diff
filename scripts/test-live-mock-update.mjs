@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // Tests LIVE mock-override updates on an ALREADY-RUNNING sidecar (no relaunch).
 //
-// setSidecarOverrides() (electron/sidecar.ts) swaps the proxy's mutable override
-// map in place, and — when the sidecar was launched without a proxy — brings one
-// up in front of the real server and repoints status.url. This is the engine
-// behind the renderer's floating-toolbar toggles. Pure Node (no Electron), so it
-// runs as a plain script like scripts/test-sidecar-mocks.mjs.
+// setSidecarOverrides() (electron/sidecar.ts) swaps the always-on proxy's mutable
+// override map in place; the proxy fronts the dev server from launch, so the new
+// map is served on the next request with no relaunch and no URL change. This is the
+// engine behind the renderer's floating-toolbar toggles. Pure Node (no Electron),
+// so it runs as a plain script like scripts/test-sidecar-mocks.mjs.
 //
 // Maps to the ticket's acceptance criteria:
 //   AC1 toggling a mock updates the live server without a manual relaunch
@@ -120,62 +120,57 @@ async function main() {
     assert(!getSidecarStatus().running, 'case1: sidecar stops cleanly');
   }
 
-  // ── Case 2: launched WITHOUT overrides (no proxy) ──────────────────────────
-  // The FIRST live override must bring a proxy up and repoint status.url — the
-  // renderer then points the <webview> at the new proxy URL.
+  // ── Case 2: launched WITHOUT overrides → always-on proxy, no repoint ───────
+  // The proxy fronts the server from launch even with zero overrides, so applying
+  // the first override neither relaunches nor changes status.url — it just starts
+  // being served at the same proxy URL.
   const plain = await launchSidecar({ repoPath, branch: 'main' });
   try {
     assert(plain.running, 'case2: sidecar launches without overrides');
     assert(
-      plain.url === rawServerUrl(plain),
-      'case2: no-override URL is the raw server (no proxy)',
-      plain.url,
+      plain.url !== rawServerUrl(plain),
+      'case2: no-override URL is the always-on proxy, not the raw server',
+      `proxy=${plain.url} server=${rawServerUrl(plain)}`,
     );
     await waitForReady(plain.url);
 
     const beforeProducts = await getJson(plain.url, '/api/products');
     assert(
       beforeProducts.total === 3 && !beforeProducts.marker,
-      'case2: raw server serves the real response',
+      'case2: with no overrides the proxy passes through the real response',
       `total=${beforeProducts.total}`,
     );
 
-    // AC1 + repoint — apply the first override; a proxy must come up at a NEW URL.
+    // AC1 — apply the first override live; URL must NOT change (proxy already up).
     const proxied = await setSidecarOverrides({
       'GET:/api/products/:productId': { id: 'prod_mock', marker: MARKER },
     });
     assert(
-      proxied.url !== plain.url && proxied.url !== rawServerUrl(proxied),
-      'case2: first override brings a proxy up and repoints the URL',
+      proxied.url === plain.url,
+      'case2: first override is served at the same proxy URL (no repoint)',
       `was=${plain.url} now=${proxied.url}`,
     );
-    assert(
-      getSidecarStatus().url === proxied.url,
-      'case2: status reflects the new proxy URL',
-      proxied.url,
-    );
-    await waitForReady(proxied.url);
 
-    // AC1 — the :param mock is served live through the new proxy URL.
-    const detail = await getJson(proxied.url, '/api/products/prod_keyboard');
-    assert(detail.marker === MARKER, 'case2 (AC1): live :param mock served via the new proxy URL');
+    // AC1 — the :param mock is served live, no relaunch.
+    const detail = await getJson(plain.url, '/api/products/prod_keyboard');
+    assert(detail.marker === MARKER, 'case2 (AC1): live :param mock served without relaunch');
 
     // AC2 — non-matched routes (different segment count, and /api/health) pass through.
-    const listThrough = await getJson(proxied.url, '/api/products');
+    const listThrough = await getJson(plain.url, '/api/products');
     assert(
       listThrough.total === 3 && !listThrough.marker,
-      'case2 (AC2): non-matched route passes through the new proxy',
+      'case2 (AC2): non-matched route passes through',
       `total=${listThrough.total}`,
     );
-    const healthThrough = await getJson(proxied.url, '/api/health');
+    const healthThrough = await getJson(plain.url, '/api/health');
     assert(
       healthThrough.service === 'storefront-auth0' && !healthThrough.marker,
-      'case2 (AC2): /api/health passes through the new proxy',
+      'case2 (AC2): /api/health passes through',
     );
 
     // AC3 — turn the live mock off; the previously-mocked route returns real data.
     await setSidecarOverrides({});
-    const detailReal = await getJson(proxied.url, '/api/products/prod_keyboard');
+    const detailReal = await getJson(plain.url, '/api/products/prod_keyboard');
     assert(!detailReal.marker, 'case2 (AC3): turning the live mock off restores the real response');
   } finally {
     stopSidecar();

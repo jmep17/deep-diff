@@ -28,6 +28,7 @@
     "test:visualdiff-mocks": "electron scripts/test-visualdiff-mocks.cjs",
     "test:mock-rendering": "electron scripts/test-mock-rendering.cjs",
     "test:ipc": "node scripts/test-ipc-validation.mjs",
+    "test:scan-calls": "node scripts/test-endpoint-scanner-calls.mjs",
     "test:scenarios": "node scripts/test-scenario-repos.mjs",
     "test:sidecar-mocks": "node scripts/test-sidecar-mocks.mjs",
     "test:live-mocks": "node scripts/test-live-mock-update.mjs",

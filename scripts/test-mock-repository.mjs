@@ -51,7 +51,11 @@ async function waitForHttp(url, timeoutMs = 8000) {
       await new Promise((resolve, reject) => {
         const request = http.get(url, (response) => {
           response.resume();
-          resolve(undefined);
+          // The sidecar is always fronted by the proxy, which answers 502 until the
+          // dev server behind it is listening — treat only a non-5xx response as
+          // ready, otherwise keep polling.
+          if ((response.statusCode ?? 500) < 500) resolve(undefined);
+          else reject(new Error(`not ready (${response.statusCode})`));
         });
         request.on('error', reject);
         request.setTimeout(1000, () => {

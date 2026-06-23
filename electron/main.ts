@@ -48,6 +48,7 @@ import {
 } from './repositories.js';
 import {
   appendSidecarConsole,
+  discoveryBus,
   getSidecarStatus,
   launchSidecar,
   setSidecarOverrides,
@@ -247,6 +248,14 @@ app.whenReady().then(async () => {
   logBus.on('entry', (entry) => {
     if (activeWindow && !activeWindow.isDestroyed()) {
       activeWindow.webContents.send('logs:event', entry);
+    }
+  });
+
+  // Stream endpoints discovered at runtime through the sidecar proxy so they join
+  // the renderer's (mockable) inventory. Main window only, same rationale as above.
+  discoveryBus.on('endpoint', (endpoint) => {
+    if (activeWindow && !activeWindow.isDestroyed()) {
+      activeWindow.webContents.send('endpoints:observed', endpoint);
     }
   });
 

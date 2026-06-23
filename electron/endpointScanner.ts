@@ -161,6 +161,16 @@ function buildEndpoint(
   };
 }
 
+/**
+ * Build an inventory entry for an endpoint observed at runtime through the sidecar
+ * proxy (no source file). There's no response body to infer fields from, so it uses
+ * the same generic {id,status} fallback mock as an unparsed definition. High
+ * confidence — it's a real request the running app actually made.
+ */
+export function buildObservedEndpoint(method: string, routePath: string): EndpointDefinition {
+  return buildEndpoint(method.toUpperCase(), routePath, '', 'observed (runtime)', '', 'high');
+}
+
 function detectCodeRoutes(repoPath: string, filePath: string, source: string) {
   const endpoints: EndpointDefinition[] = [];
   const expressPattern =
@@ -218,6 +228,160 @@ function detectCodeRoutes(repoPath: string, filePath: string, source: string) {
   return endpoints;
 }
 
+// Receiver names whose `.get()/.post()` etc. are not HTTP calls. The leading-slash
+// gate already rejects most of these (e.g. `map.get('key')`), but denylisting the
+// common offenders is cheap defense in depth. `request` covers supertest's
+// `request(app).get('/x')` in test suites.
+const CALL_RECEIVER_DENYLIST = new Set([
+  'localStorage',
+  'sessionStorage',
+  'searchParams',
+  'params',
+  'query',
+  'headers',
+  'cookies',
+  'map',
+  'cache',
+  'store',
+  'formData',
+  '_',
+  'lodash',
+  'fs',
+  'path',
+  'request',
+]);
+
+const httpMethodSet = new Set(httpMethods);
+
+// HTTP calls in test/fixture files are not real app endpoints.
+function isTestFile(relPath: string) {
+  return /(?:\.test\.|\.spec\.|__tests__\/|(?:^|\/)(?:cypress|e2e)\/)/.test(relPath);
+}
+
+/**
+ * Normalize a URL literal pulled from a call site into a mockable route path.
+ * Returns undefined when the literal isn't path-like (so non-HTTP `.get()` calls
+ * such as `cookies.get('session')` are rejected by the caller). Template
+ * interpolations (`${id}`) become `:param` segments to match the override matcher's
+ * dynamic-segment rules; query/hash are dropped; absolute URLs keep their pathname
+ * and are flagged external (the same-origin proxy can't intercept cross-origin).
+ */
+function normalizeCallPath(
+  raw: string,
+): { path: string; external: boolean; host?: string } | undefined {
+  let value = raw.trim();
+  let external = false;
+  let host: string | undefined;
+
+  if (/^https?:\/\//i.test(value)) {
+    try {
+      const url = new URL(value.replace(/\$\{[^}]*\}/g, 'param'));
+      external = true;
+      host = url.host;
+      value = url.pathname || '/';
+    } catch {
+      return undefined;
+    }
+  } else if (!value.startsWith('/')) {
+    return undefined;
+  }
+
+  value = value.split('?')[0].split('#')[0];
+
+  value = value
+    .split('/')
+    .map((seg) => {
+      const whole = seg.match(/^\$\{\s*([A-Za-z_$][\w$]*)\s*\}$/);
+      if (whole) return `:${whole[1]}`;
+      if (seg.includes('${')) return seg.replace(/\$\{[^}]*\}/g, 'param');
+      return seg;
+    })
+    .join('/');
+
+  if (!value.startsWith('/')) value = `/${value}`;
+  if (value.length > 1) value = value.replace(/\/+$/, '');
+  return { path: value, external, host };
+}
+
+// Pull an HTTP method out of a call's options object (`{ method: 'POST' }`).
+function methodFromOptions(window: string): string | undefined {
+  const match = window.match(/\bmethod\s*:\s*['"]([A-Za-z]+)['"]/);
+  if (!match) return undefined;
+  const method = match[1].toUpperCase();
+  return httpMethodSet.has(method) ? method : undefined;
+}
+
+function buildCallEndpoint(
+  method: string,
+  normalized: { path: string; external: boolean; host?: string },
+  relFilePath: string,
+  clientLabel: string,
+): EndpointDefinition {
+  const framework = normalized.external
+    ? `external call${normalized.host ? ` (${normalized.host})` : ''}`
+    : clientLabel;
+  // Empty source slice: a call site has no response body to infer fields from, so
+  // fall back to the generic {id,status} mock instead of scraping caller-side keys.
+  return buildEndpoint(
+    method,
+    normalized.path,
+    relFilePath,
+    framework,
+    '',
+    normalized.external ? 'low' : 'medium',
+  );
+}
+
+/**
+ * Detect outbound API calls the app *makes* — `fetch('/x')`, `axios('/x',{method})`,
+ * `axios.get('/x')`, and generic `IDENT.method('/x')` on any receiver. These call
+ * sites yield the `METHOD:path` the mock proxy needs, so detecting them makes an
+ * endpoint mockable even when no route-definition source file exists. Only literal
+ * URLs are reachable here; dynamic/computed URLs are caught by runtime discovery.
+ */
+function detectApiCalls(repoPath: string, filePath: string, source: string) {
+  const relFilePath = path.relative(repoPath, filePath);
+  if (isTestFile(relFilePath.replaceAll(path.sep, '/'))) return [];
+
+  const endpoints: EndpointDefinition[] = [];
+
+  // Generic method call on any receiver: `client.get('/x')`, `api.post('/x')`. The
+  // method comes from the call name; `app/router/...` definitions also match here at
+  // medium and lose dedup to their high-confidence detection in detectCodeRoutes.
+  const methodCallPattern =
+    /\b([A-Za-z_$][\w$]*)\s*\.\s*(get|post|put|patch|delete)\s*\(\s*(['"`])([^'"`]+)\3/gi;
+  for (const match of source.matchAll(methodCallPattern)) {
+    if (CALL_RECEIVER_DENYLIST.has(match[1])) continue;
+    const normalized = normalizeCallPath(match[4]);
+    if (!normalized) continue;
+    endpoints.push(
+      buildCallEndpoint(match[2].toUpperCase(), normalized, relFilePath, 'HTTP client call'),
+    );
+  }
+
+  // Bare fetch('/x', { method }).
+  const fetchPattern = /\bfetch\s*\(\s*(['"`])([^'"`]+)\1/gi;
+  for (const match of source.matchAll(fetchPattern)) {
+    const normalized = normalizeCallPath(match[2]);
+    if (!normalized) continue;
+    const end = (match.index ?? 0) + match[0].length;
+    const method = methodFromOptions(source.slice(end, end + 200)) ?? 'GET';
+    endpoints.push(buildCallEndpoint(method, normalized, relFilePath, 'fetch'));
+  }
+
+  // Bare axios('/x', { method }) — axios.get/post fall under the generic pattern.
+  const axiosPattern = /\baxios\s*\(\s*(['"`])([^'"`]+)\1/gi;
+  for (const match of source.matchAll(axiosPattern)) {
+    const normalized = normalizeCallPath(match[2]);
+    if (!normalized) continue;
+    const end = (match.index ?? 0) + match[0].length;
+    const method = methodFromOptions(source.slice(end, end + 200)) ?? 'GET';
+    endpoints.push(buildCallEndpoint(method, normalized, relFilePath, 'axios'));
+  }
+
+  return endpoints;
+}
+
 function detectOpenApiRoutes(repoPath: string, filePath: string, source: string) {
   if (!/openapi|swagger/i.test(path.basename(filePath))) return [];
 
@@ -256,13 +420,25 @@ export async function scanEndpoints(repoPath: string) {
   for (const filePath of files) {
     const source = await fs.readFile(filePath, 'utf8');
     endpoints.push(...detectCodeRoutes(repoPath, filePath, source));
+    endpoints.push(...detectApiCalls(repoPath, filePath, source));
     endpoints.push(...detectOpenApiRoutes(repoPath, filePath, source));
   }
 
+  // On a METHOD:path collision keep the higher-confidence detection so a real route
+  // definition (high) always beats a duplicate call-site detection (medium/low),
+  // regardless of file-walk order. Ties keep the first seen.
+  const confidenceRank: Record<EndpointDefinition['confidence'], number> = {
+    high: 3,
+    medium: 2,
+    low: 1,
+  };
   const deduped = new Map<string, EndpointDefinition>();
   for (const endpoint of endpoints) {
     const key = `${endpoint.method}:${endpoint.path}`;
-    if (!deduped.has(key)) deduped.set(key, endpoint);
+    const existing = deduped.get(key);
+    if (!existing || confidenceRank[endpoint.confidence] > confidenceRank[existing.confidence]) {
+      deduped.set(key, endpoint);
+    }
   }
 
   return [...deduped.values()].sort((a, b) =>

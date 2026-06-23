@@ -1,16 +1,22 @@
 #!/usr/bin/env node
 // Tests the single-server sidecar path WITH mock overrides active.
 //
-// launchSidecar() spawns ONE dev server and, when endpointOverrides are present,
-// fronts it with an HTTP proxy (electron/sidecar.ts -> startProxyServer): matched
-// METHOD:path keys return the mock body; everything else passes through to the
-// real server. This is pure Node (no Electron), so it runs as a plain script,
-// the same way scripts/test-mock-repository.mjs exercises the sidecar.
+// launchSidecar() spawns ONE dev server and ALWAYS fronts it with a pass-through
+// proxy (electron/sidecar.ts -> startProxyServer): matched METHOD:path keys return
+// the mock body; everything else passes through to the real server, while the JSON
+// endpoints the app actually hits are recorded for runtime discovery. This is pure
+// Node (no Electron), so it runs as a plain script, the same way
+// scripts/test-mock-repository.mjs exercises the sidecar.
 //
 // Requires dist-electron/ to be built first (pnpm run build:electron).
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { launchSidecar, stopSidecar, getSidecarStatus } from '../dist-electron/sidecar.js';
+import {
+  launchSidecar,
+  stopSidecar,
+  getSidecarStatus,
+  getObservedEndpoints,
+} from '../dist-electron/sidecar.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..');
@@ -111,26 +117,38 @@ async function main() {
     );
     assert(homeHtml.includes('Outfit your desk'), 'page HTML is the real (baseline) render');
 
+    // 1f. Runtime discovery: JSON responses (mock-served or passthrough) are
+    // recorded as mockable endpoints; the HTML page route is not.
+    const observed = getObservedEndpoints().map(
+      (endpoint) => `${endpoint.method}:${endpoint.path}`,
+    );
+    assert(
+      observed.includes('GET:/api/products'),
+      'runtime discovery records observed JSON endpoints',
+      observed.join(', '),
+    );
+    assert(!observed.includes('GET:/'), 'HTML page route is not recorded as an endpoint');
+
     assert(getSidecarStatus().running, 'sidecar status reports running');
   } finally {
     stopSidecar();
     assert(!getSidecarStatus().running, 'sidecar stops cleanly');
   }
 
-  // ── Case 2: sidecar WITHOUT overrides → no proxy, direct server ────────────
+  // ── Case 2: sidecar WITHOUT overrides → always-on proxy, pure passthrough ──
   const plain = await launchSidecar({ repoPath, branch: 'main' });
   try {
     assert(plain.running, 'sidecar launches without overrides');
     assert(
-      plain.url === `http://127.0.0.1:${plain.port}`,
-      'no-override URL is the raw server (no proxy)',
-      plain.url,
+      plain.url !== `http://127.0.0.1:${plain.port}`,
+      'no-override URL is the always-on pass-through proxy, not the raw server',
+      `proxy=${plain.url} server=:${plain.port}`,
     );
     await waitForReady(plain.url);
     const products = await (await fetch(new URL('/api/products', plain.url))).json();
     assert(
       products.total === 3 && !products.marker,
-      'without overrides, real API body is served',
+      'without overrides, the proxy passes through the real API body',
       `total=${products.total}`,
     );
   } finally {

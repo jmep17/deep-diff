@@ -6,13 +6,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { matchOverride, type EndpointOverrides } from './overrideMatcher.js';
+import { EventEmitter } from 'node:events';
+import { canonicalOverrideKey, matchOverride, type EndpointOverrides } from './overrideMatcher.js';
 import { detectAuth0Config } from './authConfigDetector.js';
+import { buildObservedEndpoint } from './endpointScanner.js';
 import { installDependencies, type PackageManager } from './installDependencies.js';
 import { applyOverlay } from './repoOverlay.js';
 import { logInfo } from './logger.js';
 import { LogSink } from './serverLogs.js';
-import type { SidecarLaunchRequest, SidecarStatus } from './types.js';
+import type { EndpointDefinition, SidecarLaunchRequest, SidecarStatus } from './types.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -29,10 +31,52 @@ let currentOverrides: EndpointOverrides = {};
 // appendSidecarConsole). Created per launch; closed and cleared on process exit.
 let logSink: LogSink | undefined;
 
+// Endpoints observed at runtime through the proxy (JSON responses + every mock-served
+// request), keyed METHOD:path with concrete dynamic segments collapsed to ":id".
+// Page navigations and static assets are ignored. Surfaced to the renderer inventory
+// as mockable rows via `discoveryBus`. Reset per launch.
+const observedEndpoints = new Map<string, EndpointDefinition>();
+export const discoveryBus = new EventEmitter();
+
+// Collapse concrete dynamic segments (numeric ids, UUIDs) to ":id" so list/detail
+// navigation (/api/users/1, /api/users/2) yields a single mockable row whose key also
+// matches a ":param" override.
+function collapseDynamicSegments(pathname: string): string {
+  return pathname
+    .split('/')
+    .map((seg) =>
+      /^\d+$/.test(seg) ||
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(seg)
+        ? ':id'
+        : seg,
+    )
+    .join('/');
+}
+
+function isJsonResponse(contentType?: string | string[]): boolean {
+  const value = Array.isArray(contentType) ? contentType.join(',') : (contentType ?? '');
+  return /\bjson\b/i.test(value);
+}
+
+// Record an endpoint seen through the proxy and emit it once for renderer discovery.
+function recordObservedEndpoint(method: string, pathname: string) {
+  const routePath = collapseDynamicSegments(pathname);
+  const key = canonicalOverrideKey(method, routePath);
+  if (observedEndpoints.has(key)) return;
+  const endpoint = buildObservedEndpoint(method, routePath);
+  observedEndpoints.set(key, endpoint);
+  discoveryBus.emit('endpoint', endpoint);
+}
+
+export function getObservedEndpoints(): EndpointDefinition[] {
+  return [...observedEndpoints.values()];
+}
+
 function startProxyServer(
   targetPort: number,
   getOverrides: () => EndpointOverrides,
   log?: (text: string) => void,
+  onObserved?: (method: string, pathname: string) => void,
 ): Promise<{ server: http.Server; port: number }> {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
@@ -48,6 +92,7 @@ function startProxyServer(
         });
         res.end(json);
         log?.(`${method} ${pathname} → 200 (mock)`);
+        onObserved?.(method, pathname);
         return;
       }
 
@@ -63,6 +108,9 @@ function startProxyServer(
           res.writeHead(proxyRes.statusCode ?? 200, proxyRes.headers);
           proxyRes.pipe(res, { end: true });
           log?.(`${method} ${pathname} → ${proxyRes.statusCode ?? 200} (server)`);
+          // Only JSON responses are API endpoints — page navigations and static
+          // assets pass through here too but must not pollute the inventory.
+          if (isJsonResponse(proxyRes.headers['content-type'])) onObserved?.(method, pathname);
         },
       );
 
@@ -301,18 +349,23 @@ export async function launchSidecar(request: SidecarLaunchRequest) {
     );
 
     currentOverrides = request.endpointOverrides ?? {};
-    const hasOverrides = Object.keys(currentOverrides).length > 0;
+    observedEndpoints.clear();
 
-    let exposedUrl = `http://127.0.0.1:${port}`;
-    if (hasOverrides) {
-      const proxy = await startProxyServer(
-        port,
-        () => currentOverrides,
-        (text) => sink.append('sidecar', 'network', text),
-      );
-      proxyServer = proxy.server;
-      exposedUrl = `http://127.0.0.1:${proxy.port}`;
-    }
+    // The proxy always fronts the dev server, even with zero overrides: in
+    // pass-through mode it forwards every request unchanged while recording the
+    // JSON endpoints the running app actually hits (runtime discovery), and it's
+    // already in place the instant the first mock is toggled on (no relaunch, no
+    // URL change). `status.url` is therefore always the proxy; readiness is polled
+    // against the real server port, not this URL (the proxy answers before the
+    // server behind it is listening).
+    const proxy = await startProxyServer(
+      port,
+      () => currentOverrides,
+      (text) => sink.append('sidecar', 'network', text),
+      recordObservedEndpoint,
+    );
+    proxyServer = proxy.server;
+    const exposedUrl = `http://127.0.0.1:${proxy.port}`;
 
     status = {
       running: true,
@@ -333,6 +386,7 @@ export async function launchSidecar(request: SidecarLaunchRequest) {
       proxyServer?.close();
       proxyServer = undefined;
       currentOverrides = {};
+      observedEndpoints.clear();
       void cleanupWorktree?.();
     });
 
@@ -361,15 +415,11 @@ export function appendSidecarConsole(text: string, level?: string): void {
 
 /**
  * Applies a new endpoint-override map to the ALREADY-RUNNING sidecar, without a
- * relaunch. The proxy reads `currentOverrides` live on every request (see
- * `startProxyServer`), so swapping it in place takes effect on the next fetch.
- *
- * If the sidecar was launched without overrides (raw server, no proxy) and the
- * first override is now being applied, a proxy is brought up in front of the
- * real server and `status.url` is repointed to it — the renderer then points
- * the <webview> at the returned proxy URL. Once a proxy exists it is kept for
- * the rest of the run: an empty map just makes every request pass through,
- * which is how a mock is turned back "off" (the real response is restored).
+ * relaunch. The always-on proxy reads `currentOverrides` live on every request
+ * (see `startProxyServer`), so swapping it in place takes effect on the next
+ * fetch — no proxy bring-up and no URL change, since the proxy already fronts the
+ * server from launch. An empty map makes every request pass through, which is how
+ * a mock is turned back "off" (the real response is restored).
  */
 export async function setSidecarOverrides(overrides: EndpointOverrides) {
   if (!sidecarProcess || sidecarProcess.killed || !status.running) {
@@ -377,21 +427,6 @@ export async function setSidecarOverrides(overrides: EndpointOverrides) {
   }
 
   currentOverrides = overrides ?? {};
-  const hasOverrides = Object.keys(currentOverrides).length > 0;
-
-  if (!proxyServer && hasOverrides) {
-    if (status.port === undefined) {
-      throw new Error('Sidecar port is unknown; cannot start the mock proxy.');
-    }
-    const proxy = await startProxyServer(
-      status.port,
-      () => currentOverrides,
-      (text) => logSink?.append('sidecar', 'network', text),
-    );
-    proxyServer = proxy.server;
-    status = { ...status, url: `http://127.0.0.1:${proxy.port}` };
-  }
-
   return status;
 }
 
@@ -404,6 +439,7 @@ export function stopSidecar() {
   proxyServer?.close();
   proxyServer = undefined;
   currentOverrides = {};
+  observedEndpoints.clear();
   status = { running: false };
   return status;
 }

@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type {
   ChangedFilesRequest,
+  EndpointDefinition,
   GitHubBranchRequest,
   GitHubRepositoryRequest,
   ServerLogEntry,
@@ -32,6 +33,13 @@ contextBridge.exposeInMainWorld('deepDiff', {
     const handler = (_event: IpcRendererEvent, entry: ServerLogEntry) => callback(entry);
     ipcRenderer.on('logs:event', handler);
     return () => ipcRenderer.off('logs:event', handler);
+  },
+  // Subscribe to endpoints discovered at runtime through the sidecar proxy (so they
+  // join the mockable inventory). Returns an unsubscribe fn.
+  onObservedEndpoints: (callback: (endpoint: EndpointDefinition) => void) => {
+    const handler = (_event: IpcRendererEvent, endpoint: EndpointDefinition) => callback(endpoint);
+    ipcRenderer.on('endpoints:observed', handler);
+    return () => ipcRenderer.off('endpoints:observed', handler);
   },
   // Forward a sidecar preview-page console message into the run log.
   appendLog: (entry: { text: string; level?: string }) => ipcRenderer.invoke('logs:append', entry),

@@ -129,6 +129,10 @@ export function buildMockBridge(options: MockBridgeOptions = {}) {
   const endpoints = options.endpoints ?? mockEndpoints;
   const delayMs = options.visualDiffDelayMs ?? 250;
 
+  // Captured `onObservedEndpoints` callback so a spec can simulate a runtime
+  // discovery arriving over the bridge (see `__emitObservedEndpoint`).
+  let observedCallback: ((endpoint: EndpointDefinition) => void) | undefined;
+
   return {
     selectWorkspace: async (): Promise<WorkspaceSelection> => ({
       workspacePath: '/mock/mock-repositories',
@@ -168,7 +172,16 @@ export function buildMockBridge(options: MockBridgeOptions = {}) {
     },
     overlayFolder: async (repoPath: string) => `${repoPath}/.deep-diff-overlay`,
     onServerLog: (_callback: (entry: ServerLogEntry) => void) => () => undefined,
+    onObservedEndpoints: (callback: (endpoint: EndpointDefinition) => void) => {
+      observedCallback = callback;
+      return () => {
+        observedCallback = undefined;
+      };
+    },
     appendLog: async (_entry: { text: string; level?: string }) => undefined,
     revealLog: async (file: string) => file,
+    // Test-only: simulate a runtime-discovered endpoint arriving over the bridge so
+    // a spec can exercise the App.tsx merge into the mockable inventory.
+    __emitObservedEndpoint: (endpoint: EndpointDefinition) => observedCallback?.(endpoint),
   };
 }

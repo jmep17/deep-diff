@@ -58,6 +58,9 @@ declare global {
       // Subscribe to streamed server/page log lines (sidecar + visual diff).
       // Returns an unsubscribe function.
       onServerLog: (callback: (entry: ServerLogEntry) => void) => () => void;
+      // Subscribe to endpoints discovered at runtime through the sidecar proxy
+      // (added to the mockable inventory). Returns an unsubscribe function.
+      onObservedEndpoints: (callback: (endpoint: EndpointDefinition) => void) => () => void;
       // Forward a sidecar preview-page console message into the run log.
       appendLog: (entry: { text: string; level?: string }) => Promise<void>;
       // Reveal a run's log file in the OS file manager.

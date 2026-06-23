@@ -431,6 +431,21 @@ function App() {
     });
   }, []);
 
+  // Endpoints discovered at runtime through the sidecar proxy join the inventory as
+  // mockable rows. Dedupe by METHOD:path so a runtime hit never overrides a richer
+  // scanned definition, and reapply any saved per-endpoint mock edits.
+  useEffect(() => {
+    if (!bridge?.onObservedEndpoints) return;
+    return bridge.onObservedEndpoints((endpoint) => {
+      setEndpoints((prev) => {
+        const key = `${endpoint.method}:${endpoint.path}`;
+        if (prev.some((existing) => `${existing.method}:${existing.path}` === key)) return prev;
+        const [withEdits] = withMockEdits([endpoint], mockEditsRef.current);
+        return [...prev, withEdits];
+      });
+    });
+  }, []);
+
   const filteredEndpoints = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return endpoints;
