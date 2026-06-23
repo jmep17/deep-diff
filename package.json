@@ -24,6 +24,7 @@
     "test:e2e:open": "bash scripts/test-e2e-open.sh",
     "test:change-link": "node scripts/test-change-link.mjs",
     "test:change-probe": "electron scripts/test-change-probe.cjs",
+    "test:console-patch": "electron scripts/test-console-patch.cjs",
     "test:mock-rendering": "electron scripts/test-mock-rendering.cjs",
     "test:ipc": "node scripts/test-ipc-validation.mjs",
     "test:scenarios": "node scripts/test-scenario-repos.mjs",
