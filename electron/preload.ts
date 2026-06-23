@@ -11,6 +11,9 @@ import type {
 
 contextBridge.exposeInMainWorld('deepDiff', {
   selectWorkspace: () => ipcRenderer.invoke('workspace:select'),
+  // Dev/test seam: returns the DEEP_DIFF_WORKSPACE-seeded workspace (or null) so the
+  // app can auto-open it on mount without the native folder dialog.
+  getSeededWorkspace: () => ipcRenderer.invoke('workspace:seeded'),
   listLocalBranches: (repoPath: string) => ipcRenderer.invoke('repo:listBranches', repoPath),
   scanEndpoints: (repoPath: string) => ipcRenderer.invoke('repo:scanEndpoints', repoPath),
   fetchGitHubRepos: (request: GitHubRepositoryRequest) =>

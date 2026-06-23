@@ -18,6 +18,7 @@ declare global {
   interface Window {
     deepDiff?: {
       selectWorkspace: () => Promise<WorkspaceSelection | null>;
+      getSeededWorkspace: () => Promise<WorkspaceSelection | null>;
       listLocalBranches: (repoPath: string) => Promise<string[]>;
       scanEndpoints: (repoPath: string) => Promise<EndpointDefinition[]>;
       fetchGitHubRepos: (request: { organization: string }) => Promise<RepositorySummary[]>;

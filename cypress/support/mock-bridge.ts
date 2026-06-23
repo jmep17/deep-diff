@@ -138,6 +138,12 @@ export function buildMockBridge(options: MockBridgeOptions = {}) {
       workspacePath: '/mock/mock-repositories',
       repositories: mockRepositories,
     }),
+    // Auto-open a workspace on mount (the app no longer pre-selects a fake repo),
+    // so specs land on a populated, runnable state without driving the picker.
+    getSeededWorkspace: async (): Promise<WorkspaceSelection> => ({
+      workspacePath: '/mock/mock-repositories',
+      repositories: mockRepositories,
+    }),
     listLocalBranches: async () => mockBranches,
     scanEndpoints: async () => endpoints,
     fetchGitHubRepos: async () => [],

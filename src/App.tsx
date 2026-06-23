@@ -68,6 +68,16 @@ import type {
 const bridge = window.deepDiff;
 const workingTreeRef = '__working_tree__';
 
+// Placeholder shown in Electron before a workspace is opened — no `path`, so the
+// run/launch guards correctly block and prompt the user to open a folder. (Demo
+// mode, with no bridge, still seeds a fake repo so the UI has something to show.)
+const EMPTY_REPO: RepositorySummary = {
+  id: '',
+  name: 'No repository',
+  fullName: 'No repository selected',
+  source: 'local',
+};
+
 // Capture viewport presets, keyed for the device Toggle Group.
 const VIEWPORT_PRESETS = {
   desktop: { width: 1280, height: 900 },
@@ -367,12 +377,19 @@ function LogDrawer({
 function App() {
   const [sourceMode, setSourceMode] = useState<'local' | 'github'>('local');
   const [workspacePath, setWorkspacePath] = useState('No workspace selected');
-  const [repositories, setRepositories] = useState<RepositorySummary[]>(seedRepositories);
-  const [selectedRepo, setSelectedRepo] = useState<RepositorySummary>(seedRepositories[0]);
-  const [branches, setBranches] = useState(seedBranches);
+  // In Electron, start empty so the UI prompts the user to open a workspace
+  // instead of showing a fake demo repo that errors on run. Seeds only fill the
+  // no-bridge demo mode.
+  const [repositories, setRepositories] = useState<RepositorySummary[]>(
+    bridge ? [] : seedRepositories,
+  );
+  const [selectedRepo, setSelectedRepo] = useState<RepositorySummary>(
+    bridge ? EMPTY_REPO : seedRepositories[0],
+  );
+  const [branches, setBranches] = useState<string[]>(bridge ? [] : seedBranches);
   const [baseBranch, setBaseBranch] = useState('main');
   const [targetBranch, setTargetBranch] = useState('feature/order-flow');
-  const [endpoints, setEndpoints] = useState<EndpointDefinition[]>(seedEndpoints);
+  const [endpoints, setEndpoints] = useState<EndpointDefinition[]>(bridge ? [] : seedEndpoints);
   // Single live mock set: every detected endpoint is mocked by default. The user's
   // deviations are the only persisted state — `disabledMockKeys` (turned-off keys)
   // and `mockEdits` (edited bodies). `mocksEnabled` is the master switch.
@@ -387,7 +404,7 @@ function App() {
   // Gates the persistence save effect until after the initial load has hydrated
   // state — otherwise the first render would overwrite state.json with seeds.
   const [stateHydrated, setStateHydrated] = useState(false);
-  const [selectedEndpointId, setSelectedEndpointId] = useState(seedEndpoints[0].id);
+  const [selectedEndpointId, setSelectedEndpointId] = useState(bridge ? '' : seedEndpoints[0].id);
   const [githubOrg, setGithubOrg] = useState('acme-pizza');
   const [search, setSearch] = useState('');
   const [diffStatus, setDiffStatus] = useState<DiffStatus>('idle');
@@ -439,6 +456,24 @@ function App() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // Dev/test seam: if the main process seeded a workspace (DEEP_DIFF_WORKSPACE),
+  // auto-open it on mount — no native folder dialog — so the full flow is
+  // automatable over CDP. No-op in normal use (returns null).
+  useEffect(() => {
+    if (!bridge?.getSeededWorkspace) return;
+    void (async () => {
+      try {
+        const seeded = await bridge.getSeededWorkspace();
+        if (!seeded) return;
+        setWorkspacePath(seeded.workspacePath);
+        setRepositories(seeded.repositories);
+        if (seeded.repositories[0]) await hydrateRepository(seeded.repositories[0]);
+      } catch {
+        /* ignore */
+      }
+    })();
   }, []);
 
   // Persist UI state (debounced) after hydration. Skips the pre-hydration render
@@ -726,7 +761,11 @@ function App() {
   }
 
   async function launchSidecar() {
-    if (bridge && selectedRepo.path) {
+    if (bridge) {
+      if (!selectedRepo.path) {
+        setMessage('Open a local repository before launching the sidecar.');
+        return;
+      }
       try {
         setBusy('Launching sidecar');
         const nextStatus = await bridge.launchSidecar({
@@ -1753,7 +1792,7 @@ function SidecarPanel({
   onSidecarStatus,
 }: {
   sidecar: SidecarStatus;
-  selectedEndpoint: EndpointDefinition;
+  selectedEndpoint?: EndpointDefinition;
   onLaunch: () => Promise<void>;
   onStop: () => Promise<void>;
   endpoints: EndpointDefinition[];
@@ -2044,12 +2083,12 @@ function SidecarPanel({
         <div className="section-heading inline">
           <div>
             <h2>Selected mock</h2>
-            <p>{selectedEndpoint.path}</p>
+            <p>{selectedEndpoint?.path ?? 'No endpoint selected'}</p>
           </div>
           <Boxes size={18} />
         </div>
         <div className="shape-table">
-          {selectedEndpoint.fields.map((field) => (
+          {(selectedEndpoint?.fields ?? []).map((field) => (
             <div key={field.name}>
               <span>{field.name}</span>
               <code>{field.type}</code>

@@ -281,6 +281,29 @@ app.whenReady().then(async () => {
     }
   });
 
+  // Dev/test seam: seed authorized roots and auto-open a workspace WITHOUT the
+  // native folder dialog, so the GUI flow is driveable over CDP/agent-browser
+  // (the macOS open panel runs in a separate process that automation can't reach,
+  // and screenshot-filtering hides it). Inactive in normal use — only when the env
+  // vars are set. Paths are still validated against authorizedRoots downstream.
+  for (const root of (process.env.DEEP_DIFF_AUTHORIZE_ROOTS ?? '').split(path.delimiter)) {
+    const trimmed = root.trim();
+    if (!trimmed) continue;
+    try {
+      authorizedRoots.add(await fs.realpath(trimmed));
+    } catch {
+      /* ignore an unresolvable seed path */
+    }
+  }
+
+  registerHandler('workspace:seeded', async () => {
+    const seed = process.env.DEEP_DIFF_WORKSPACE?.trim();
+    if (!seed) return null;
+    const realRoot = await fs.realpath(seed);
+    authorizedRoots.add(realRoot);
+    return scanWorkspace(seed);
+  });
+
   registerHandler('workspace:select', async () => {
     const result = await dialog.showOpenDialog({
       title: 'Select an organization or workspace folder',
