@@ -27,12 +27,15 @@ export interface WorkspaceSelection {
 
 export interface GitHubRepositoryRequest {
   organization: string;
+  // Main-process-internal: the token resolved by resolveGitHubToken (env / gh CLI),
+  // never renderer-supplied. The IPC validators do not accept a token from the renderer.
   token?: string;
 }
 
 export interface GitHubBranchRequest {
   owner: string;
   repository: string;
+  // See GitHubRepositoryRequest.token — main-process-internal carrier, not renderer-supplied.
   token?: string;
 }
 

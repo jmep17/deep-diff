@@ -131,11 +131,6 @@ function assertPlainObject(raw: unknown, label: string): Record<string, unknown>
   return raw as Record<string, unknown>;
 }
 
-function optionalString(value: unknown, field: string): string | undefined {
-  if (value === undefined || value === null) return undefined;
-  return requireNonEmptyString(value, field);
-}
-
 /**
  * Validates an endpoint-overrides map: a plain object whose keys are
  * "METHOD:path" strings and whose values are plain objects (body-only
@@ -155,7 +150,6 @@ export function validateGitHubRepositoryRequest(raw: unknown): GitHubRepositoryR
   const obj = assertPlainObject(raw, 'github:listRepos request');
   return {
     organization: requireNonEmptyString(obj.organization, 'organization'),
-    token: optionalString(obj.token, 'token'),
   };
 }
 
@@ -164,7 +158,6 @@ export function validateGitHubBranchRequest(raw: unknown): GitHubBranchRequest {
   return {
     owner: requireNonEmptyString(obj.owner, 'owner'),
     repository: requireNonEmptyString(obj.repository, 'repository'),
-    token: optionalString(obj.token, 'token'),
   };
 }
 

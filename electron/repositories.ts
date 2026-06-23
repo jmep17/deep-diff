@@ -116,13 +116,36 @@ function githubHeaders(token?: string) {
   };
 }
 
-async function githubRequest<T>(url: string, token?: string): Promise<T> {
-  const response = await fetch(url, { headers: githubHeaders(token) });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`GitHub request failed (${response.status}): ${detail}`);
+// Extract the `rel="next"` URL from a GitHub `Link` response header (paginated
+// list endpoints). Returns null when there is no next page.
+function parseNextLink(linkHeader: string | null): string | null {
+  if (!linkHeader) return null;
+  for (const part of linkHeader.split(',')) {
+    const match = part.match(/<([^>]+)>\s*;\s*rel="next"/);
+    if (match) return match[1];
   }
-  return response.json() as Promise<T>;
+  return null;
+}
+
+// Fetch every page of a GitHub list endpoint, following the `Link: rel="next"`
+// header, and concatenate the results. Without this, list endpoints silently
+// cap at `per_page` (max 100) — repos/branches beyond that were dropped.
+async function githubRequestAll<T>(url: string, token?: string): Promise<T[]> {
+  const results: T[] = [];
+  let next: string | null = url;
+  let pages = 0;
+  while (next && pages < 50) {
+    // hard cap guards against a pathological cycle
+    const response = await fetch(next, { headers: githubHeaders(token) });
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(`GitHub request failed (${response.status}): ${detail}`);
+    }
+    results.push(...((await response.json()) as T[]));
+    next = parseNextLink(response.headers.get('link'));
+    pages += 1;
+  }
+  return results;
 }
 
 interface GitHubRepositoryPayload {
@@ -146,7 +169,7 @@ export async function fetchGitHubRepositories(request: GitHubRepositoryRequest) 
     throw new Error('GitHub organization is required.');
   }
 
-  const repos = await githubRequest<GitHubRepositoryPayload[]>(
+  const repos = await githubRequestAll<GitHubRepositoryPayload>(
     `https://api.github.com/orgs/${encodeURIComponent(organization)}/repos?per_page=100&sort=updated`,
     request.token,
   );
@@ -169,7 +192,7 @@ export async function fetchGitHubBranches(request: GitHubBranchRequest) {
     throw new Error('GitHub owner and repository are required.');
   }
 
-  const branches = await githubRequest<GitHubBranchPayload[]>(
+  const branches = await githubRequestAll<GitHubBranchPayload>(
     `https://api.github.com/repos/${encodeURIComponent(request.owner)}/${encodeURIComponent(
       request.repository,
     )}/branches?per_page=100`,

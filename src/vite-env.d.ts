@@ -20,15 +20,8 @@ declare global {
       selectWorkspace: () => Promise<WorkspaceSelection | null>;
       listLocalBranches: (repoPath: string) => Promise<string[]>;
       scanEndpoints: (repoPath: string) => Promise<EndpointDefinition[]>;
-      fetchGitHubRepos: (request: {
-        organization: string;
-        token?: string;
-      }) => Promise<RepositorySummary[]>;
-      fetchGitHubBranches: (request: {
-        owner: string;
-        repository: string;
-        token?: string;
-      }) => Promise<string[]>;
+      fetchGitHubRepos: (request: { organization: string }) => Promise<RepositorySummary[]>;
+      fetchGitHubBranches: (request: { owner: string; repository: string }) => Promise<string[]>;
       launchSidecar: (request: {
         repoPath?: string;
         branch?: string;

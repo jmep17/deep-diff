@@ -7,13 +7,11 @@ import { fileURLToPath } from 'node:url';
 
 const execFileAsync = promisify(execFile);
 
-// Resolve a GitHub token WITHOUT persisting it: prefer a session-supplied token
-// (typed into Settings this run, never written to disk), then env vars, then the
-// `gh` CLI. Returns undefined for unauthenticated (public) requests.
+// Resolve a GitHub token WITHOUT persisting it, from env vars then the `gh` CLI.
+// There is no UI token field — the token is never renderer-supplied or written
+// to disk. Returns undefined for unauthenticated (public) requests.
 let cachedGhToken: string | null | undefined;
-async function resolveGitHubToken(sessionToken?: string): Promise<string | undefined> {
-  const session = sessionToken?.trim();
-  if (session) return session;
+async function resolveGitHubToken(): Promise<string | undefined> {
   if (process.env.GITHUB_TOKEN?.trim()) return process.env.GITHUB_TOKEN.trim();
   if (process.env.GH_TOKEN?.trim()) return process.env.GH_TOKEN.trim();
   if (cachedGhToken !== undefined) return cachedGhToken ?? undefined;
@@ -287,12 +285,12 @@ app.whenReady().then(async () => {
 
   registerHandler('github:listRepos', async (_event, raw) => {
     const request = validateGitHubRepositoryRequest(raw);
-    return fetchGitHubRepositories({ ...request, token: await resolveGitHubToken(request.token) });
+    return fetchGitHubRepositories({ ...request, token: await resolveGitHubToken() });
   });
 
   registerHandler('github:listBranches', async (_event, raw) => {
     const request = validateGitHubBranchRequest(raw);
-    return fetchGitHubBranches({ ...request, token: await resolveGitHubToken(request.token) });
+    return fetchGitHubBranches({ ...request, token: await resolveGitHubToken() });
   });
 
   registerHandler('sidecar:launch', async (_event, raw) => {

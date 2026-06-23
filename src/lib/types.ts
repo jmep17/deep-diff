@@ -48,7 +48,6 @@ export interface MockProfile {
 // User-editable settings persisted to userData/state.json.
 export interface PersistedSettings {
   githubOrg?: string;
-  githubToken?: string;
   sensitivity?: number;
   viewport?: { width: number; height: number };
 }

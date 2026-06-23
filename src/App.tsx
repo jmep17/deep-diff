@@ -350,7 +350,6 @@ function App() {
   const [stateHydrated, setStateHydrated] = useState(false);
   const [selectedEndpointId, setSelectedEndpointId] = useState(seedEndpoints[0].id);
   const [githubOrg, setGithubOrg] = useState('acme-pizza');
-  const [githubToken, setGithubToken] = useState('');
   const [search, setSearch] = useState('');
   const [diffStatus, setDiffStatus] = useState<DiffStatus>('idle');
   const [diffReport, setDiffReport] = useState<VisualDiffReport | null>(null);
@@ -387,8 +386,8 @@ function App() {
         if (saved.settings) {
           const s = saved.settings;
           if (typeof s.githubOrg === 'string') setGithubOrg(s.githubOrg);
-          // NB: githubToken is intentionally NOT persisted (never written to disk);
-          // it's resolved at use-time in the main process from env / `gh auth token`.
+          // No GitHub token is persisted or collected in the UI; it's resolved at
+          // use-time in the main process from env vars / `gh auth token`.
           if (typeof s.sensitivity === 'number') setSensitivity(s.sensitivity);
           if (s.viewport) setViewport(s.viewport);
         }
@@ -413,7 +412,6 @@ function App() {
         profiles,
         activeProfileId,
         mockEdits,
-        // githubToken deliberately omitted — secrets are never written to disk.
         settings: { githubOrg, sensitivity, viewport },
       });
     }, 400);
@@ -516,7 +514,6 @@ function App() {
         const remoteBranches = await bridge.fetchGitHubBranches({
           owner: repo.owner,
           repository: repo.name,
-          token: githubToken || undefined,
         });
         setBranches(remoteBranches.length ? remoteBranches : [nextBase]);
         setTargetBranch(
@@ -606,7 +603,6 @@ function App() {
       setBusy('Fetching GitHub repositories');
       const remoteRepos = await bridge.fetchGitHubRepos({
         organization: githubOrg,
-        token: githubToken || undefined,
       });
       setRepositories(remoteRepos);
       if (remoteRepos[0]) await hydrateRepository(remoteRepos[0]);
@@ -910,8 +906,6 @@ function App() {
                 setTargetBranch={setTargetBranch}
                 githubOrg={githubOrg}
                 setGithubOrg={setGithubOrg}
-                githubToken={githubToken}
-                setGithubToken={setGithubToken}
                 chooseWorkspace={chooseWorkspace}
                 fetchGitHubRepositories={fetchGitHubRepositories}
                 runVisualDiff={runVisualDiff}
@@ -1021,11 +1015,9 @@ function App() {
           <SettingsView
             workspacePath={workspacePath}
             githubOrg={githubOrg}
-            githubToken={githubToken}
             viewport={viewport}
             sensitivity={sensitivity}
             onChangeGithubOrg={setGithubOrg}
-            onChangeGithubToken={setGithubToken}
             onChangeViewport={setViewport}
             onChangeSensitivity={setSensitivity}
             repoPath={selectedRepo.path ?? ''}
@@ -1057,8 +1049,6 @@ function RepositoryControls({
   setTargetBranch,
   githubOrg,
   setGithubOrg,
-  githubToken,
-  setGithubToken,
   chooseWorkspace,
   fetchGitHubRepositories,
   runVisualDiff,
@@ -1076,14 +1066,18 @@ function RepositoryControls({
   setTargetBranch: (branch: string) => void;
   githubOrg: string;
   setGithubOrg: (org: string) => void;
-  githubToken: string;
-  setGithubToken: (token: string) => void;
   chooseWorkspace: () => Promise<void>;
   fetchGitHubRepositories: () => Promise<void>;
   runVisualDiff: () => Promise<void>;
   diffStatus: DiffStatus;
 }) {
   const visibleRepositories = repositories.filter((repo) => repo.source === sourceMode);
+  const [repoFilter, setRepoFilter] = useState('');
+  // Filter on the repository name only (the segment after the `org/` prefix).
+  const repoQuery = repoFilter.trim().toLowerCase();
+  const filteredRepositories = repoQuery
+    ? visibleRepositories.filter((repo) => repo.name.toLowerCase().includes(repoQuery))
+    : visibleRepositories;
 
   return (
     <div className="panel-section">
@@ -1124,15 +1118,6 @@ function RepositoryControls({
             <span>Organization</span>
             <input value={githubOrg} onChange={(event) => setGithubOrg(event.target.value)} />
           </label>
-          <label>
-            <span>Token</span>
-            <input
-              value={githubToken}
-              type="password"
-              placeholder="Optional for private repos"
-              onChange={(event) => setGithubToken(event.target.value)}
-            />
-          </label>
           <button className="wide-secondary" type="button" onClick={fetchGitHubRepositories}>
             <RefreshCcw size={16} />
             Fetch repositories
@@ -1142,6 +1127,12 @@ function RepositoryControls({
 
       <label className="field-label">
         <span>Repository</span>
+        <input
+          className="repo-filter"
+          value={repoFilter}
+          placeholder="Filter by name…"
+          onChange={(event) => setRepoFilter(event.target.value)}
+        />
         <div className="select-wrap">
           <select
             value={selectedRepo.id}
@@ -1150,11 +1141,17 @@ function RepositoryControls({
               if (repo) void onSelectRepository(repo);
             }}
           >
-            {visibleRepositories.map((repo) => (
-              <option key={repo.id} value={repo.id}>
-                {repo.fullName}
+            {filteredRepositories.length === 0 ? (
+              <option value="" disabled>
+                No repositories match
               </option>
-            ))}
+            ) : (
+              filteredRepositories.map((repo) => (
+                <option key={repo.id} value={repo.id}>
+                  {repo.fullName}
+                </option>
+              ))
+            )}
           </select>
           <ChevronDown size={15} />
         </div>
@@ -2535,22 +2532,18 @@ function OverlayEditor({ repoPath }: { repoPath: string }) {
 function SettingsView({
   workspacePath,
   githubOrg,
-  githubToken,
   viewport,
   sensitivity,
   onChangeGithubOrg,
-  onChangeGithubToken,
   onChangeViewport,
   onChangeSensitivity,
   repoPath,
 }: {
   workspacePath: string;
   githubOrg: string;
-  githubToken: string;
   viewport: { width: number; height: number };
   sensitivity: number;
   onChangeGithubOrg: (value: string) => void;
-  onChangeGithubToken: (value: string) => void;
   onChangeViewport: (value: { width: number; height: number }) => void;
   onChangeSensitivity: (value: number) => void;
   repoPath: string;
@@ -2581,20 +2574,14 @@ function SettingsView({
             />
           </label>
 
-          <label className="settings-field">
-            <span>GitHub token</span>
-            <input
-              type="password"
-              value={githubToken}
-              placeholder="Uses gh CLI / GITHUB_TOKEN by default"
-              autoComplete="off"
-              onChange={(event) => onChangeGithubToken(event.target.value)}
-            />
+          <div className="settings-field">
+            <span>GitHub authentication</span>
             <small>
-              Session only — never saved to disk. Leave blank to use <code>gh auth token</code> or{' '}
-              <code>GITHUB_TOKEN</code>.
+              No token field — the GitHub token is resolved automatically from{' '}
+              <code>GITHUB_TOKEN</code>/<code>GH_TOKEN</code> or <code>gh auth token</code>. Nothing
+              is collected in the UI or saved to disk.
             </small>
-          </label>
+          </div>
 
           <div className="settings-field">
             <span>Default viewport</span>
