@@ -4,6 +4,7 @@ import type {
   ChangeLinkResult,
   ChangeProbe,
   EndpointDefinition,
+  PersistedState,
   RepositorySummary,
   ServerLogEntry,
   SidecarStatus,
@@ -61,6 +62,9 @@ declare global {
       appendLog: (entry: { text: string; level?: string }) => Promise<void>;
       // Reveal a run's log file in the OS file manager.
       revealLog: (file: string) => Promise<string>;
+      // Load/save persisted UI state (profiles, edited mocks, settings).
+      loadState: () => Promise<PersistedState>;
+      saveState: (state: PersistedState) => Promise<boolean>;
     };
   }
 

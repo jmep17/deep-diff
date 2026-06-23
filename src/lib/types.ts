@@ -45,6 +45,25 @@ export interface MockProfile {
   endpointOverrides: Record<string, Record<string, unknown>>;
 }
 
+// User-editable settings persisted to userData/state.json.
+export interface PersistedSettings {
+  githubOrg?: string;
+  githubToken?: string;
+  sensitivity?: number;
+  viewport?: { width: number; height: number };
+}
+
+// Whole persisted UI state. `mockEdits` maps `METHOD:path` → an edited mock body
+// applied onto freshly-scanned endpoints so per-endpoint mock edits survive a
+// rescan/restart.
+export interface PersistedState {
+  version?: number;
+  profiles?: MockProfile[];
+  activeProfileId?: string;
+  mockEdits?: Record<string, Record<string, unknown>>;
+  settings?: PersistedSettings;
+}
+
 // Shared log shapes — mirror of electron/serverLogs.ts (the two processes have
 // separate compiler configs and can't import across the main/renderer boundary).
 export type LogSource = 'diff' | 'sidecar';

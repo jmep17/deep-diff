@@ -37,4 +37,7 @@ contextBridge.exposeInMainWorld('deepDiff', {
   appendLog: (entry: { text: string; level?: string }) => ipcRenderer.invoke('logs:append', entry),
   // Reveal a run's log file in the OS file manager.
   revealLog: (file: string) => ipcRenderer.invoke('logs:reveal', { file }),
+  // Persisted UI state (profiles, edited mock bodies, settings) in userData.
+  loadState: () => ipcRenderer.invoke('state:load'),
+  saveState: (state: unknown) => ipcRenderer.invoke('state:save', state),
 });

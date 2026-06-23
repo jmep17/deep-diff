@@ -533,6 +533,61 @@ select {
   gap: 0;
 }
 
+.settings-form {
+  display: grid;
+  gap: 16px;
+  padding: 12px;
+  max-width: 460px;
+}
+
+.settings-field {
+  display: grid;
+  gap: 5px;
+}
+
+.settings-field > span {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.settings-field input {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--mozzarella);
+  font: inherit;
+}
+
+.settings-field input[readonly] {
+  color: var(--muted);
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.settings-field small {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-row input {
+  width: 96px;
+}
+
+.settings-times {
+  color: var(--muted);
+}
+
+.settings-unit {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .profile-meta {
   display: block;
   min-width: 0;
@@ -619,6 +674,89 @@ select {
   word-break: break-word;
   max-height: 240px;
   overflow: auto;
+}
+
+.mock-json .tok-key {
+  color: #7fb0ff;
+}
+.mock-json .tok-str {
+  color: #9ece6a;
+}
+.mock-json .tok-num {
+  color: #ff9e64;
+}
+.mock-json .tok-bool {
+  color: #bb9af7;
+}
+.mock-json .tok-null {
+  color: #f7768e;
+}
+
+.mock-body {
+  position: relative;
+}
+
+.mock-edit-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--charcoal-700);
+  border-radius: 6px;
+  background: rgba(30, 30, 46, 0.85);
+  color: #d6deeb;
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.mock-body:hover .mock-edit-btn,
+.mock-edit-btn:focus-visible {
+  opacity: 1;
+}
+
+.mock-body.editing {
+  display: grid;
+  gap: 6px;
+  padding: 9px 11px;
+  border-top: 1px solid var(--line);
+  background: #1e1e2e;
+}
+
+.mock-json-edit {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--charcoal-700);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #14161f;
+  color: #d6deeb;
+  font-family: 'SFMono-Regular', ui-monospace, 'JetBrains Mono', Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+  tab-size: 2;
+}
+
+.mock-edit-hint {
+  margin: 0;
+  color: #8b8478;
+  font-size: 11px;
+}
+
+.mock-edit-error {
+  margin: 0;
+  color: #f7768e;
+  font-size: 11px;
+}
+
+.mock-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .profile-row.enabled {

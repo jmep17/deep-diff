@@ -24,6 +24,7 @@ import {
   Move,
   PanelRight,
   Play,
+  Pencil,
   Plus,
   RefreshCcw,
   Search,
@@ -99,6 +100,18 @@ function Toggle({
       <span />
     </button>
   );
+}
+
+// Reapply persisted per-endpoint mock edits onto a freshly scanned/seeded list.
+function withMockEdits(
+  list: EndpointDefinition[],
+  edits: Record<string, Record<string, unknown>>,
+): EndpointDefinition[] {
+  if (!Object.keys(edits).length) return list;
+  return list.map((endpoint) => {
+    const key = `${endpoint.method.toUpperCase()}:${endpoint.path}`;
+    return edits[key] ? { ...endpoint, mock: edits[key] } : endpoint;
+  });
 }
 
 function MethodPill({ method }: { method: string }) {
@@ -325,6 +338,15 @@ function App() {
   const [endpoints, setEndpoints] = useState<EndpointDefinition[]>(seedEndpoints);
   const [profiles, setProfiles] = useState<MockProfile[]>(seedProfiles);
   const [activeProfileId, setActiveProfileId] = useState(seedProfiles[0].id);
+  // Per-endpoint edited mock bodies, keyed `METHOD:path`, reapplied onto freshly
+  // scanned endpoints so edits survive a rescan/restart. Persisted to state.json.
+  const [mockEdits, setMockEdits] = useState<Record<string, Record<string, unknown>>>({});
+  // Latest mockEdits for use inside async scan handlers without stale closures.
+  const mockEditsRef = useRef(mockEdits);
+  mockEditsRef.current = mockEdits;
+  // Gates the persistence save effect until after the initial load has hydrated
+  // state — otherwise the first render would overwrite state.json with seeds.
+  const [stateHydrated, setStateHydrated] = useState(false);
   const [selectedEndpointId, setSelectedEndpointId] = useState(seedEndpoints[0].id);
   const [githubOrg, setGithubOrg] = useState('acme-pizza');
   const [githubToken, setGithubToken] = useState('');
@@ -349,6 +371,60 @@ function App() {
   // this in-memory buffer is capped for render performance.
   const [logEntries, setLogEntries] = useState<ServerLogEntry[]>([]);
   const [logsOpen, setLogsOpen] = useState(false);
+
+  // Hydrate persisted state once on mount. Falls through to seeds when the
+  // bridge is absent (demo mode) or the file is empty (first run).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const saved = await bridge?.loadState?.();
+        if (cancelled || !saved) return;
+        if (saved.profiles?.length) setProfiles(saved.profiles);
+        if (saved.activeProfileId) setActiveProfileId(saved.activeProfileId);
+        if (saved.mockEdits) setMockEdits(saved.mockEdits);
+        if (saved.settings) {
+          const s = saved.settings;
+          if (typeof s.githubOrg === 'string') setGithubOrg(s.githubOrg);
+          if (typeof s.githubToken === 'string') setGithubToken(s.githubToken);
+          if (typeof s.sensitivity === 'number') setSensitivity(s.sensitivity);
+          if (s.viewport) setViewport(s.viewport);
+        }
+      } catch {
+        // Ignore — keep seed defaults.
+      } finally {
+        if (!cancelled) setStateHydrated(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Persist UI state (debounced) after hydration. Skips the pre-hydration render
+  // so seeds never clobber a saved file.
+  useEffect(() => {
+    if (!stateHydrated || !bridge?.saveState) return;
+    const timer = window.setTimeout(() => {
+      void bridge.saveState({
+        version: 1,
+        profiles,
+        activeProfileId,
+        mockEdits,
+        settings: { githubOrg, githubToken, sensitivity, viewport },
+      });
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [
+    stateHydrated,
+    profiles,
+    activeProfileId,
+    mockEdits,
+    githubOrg,
+    githubToken,
+    sensitivity,
+    viewport,
+  ]);
 
   useEffect(() => {
     if (!bridge?.onServerLog) return;
@@ -402,7 +478,12 @@ function App() {
         const branchOptions = localBranches.length ? localBranches : [nextBase];
         setBranches([...branchOptions, workingTreeRef]);
         setTargetBranch(localBranches.find((branch) => branch !== nextBase) ?? workingTreeRef);
-        setEndpoints(detectedEndpoints.length ? detectedEndpoints : seedEndpoints);
+        setEndpoints(
+          withMockEdits(
+            detectedEndpoints.length ? detectedEndpoints : seedEndpoints,
+            mockEditsRef.current,
+          ),
+        );
         setSelectedEndpointId((detectedEndpoints[0] ?? seedEndpoints[0]).id);
         setDiffReport(null);
         setSelectedReportRouteId(null);
@@ -432,7 +513,7 @@ function App() {
         setTargetBranch(
           remoteBranches.find((branch) => branch !== nextBase) ?? remoteBranches[0] ?? nextBase,
         );
-        setEndpoints(seedEndpoints);
+        setEndpoints(withMockEdits(seedEndpoints, mockEditsRef.current));
         setMessage(
           'GitHub branches loaded. Clone or open the repository locally to run endpoint scanning.',
         );
@@ -650,6 +731,32 @@ function App() {
     );
   }
 
+  // Edit a mock body. When the profile has an active override for the endpoint,
+  // edit that override; otherwise edit the endpoint's default mock (recorded in
+  // mockEdits so it survives a rescan/restart).
+  function editEndpointMock(
+    endpoint: EndpointDefinition,
+    profileId: string,
+    body: Record<string, unknown>,
+  ) {
+    const key = `${endpoint.method.toUpperCase()}:${endpoint.path}`;
+    const profile = profiles.find((item) => item.id === profileId);
+    if (profile && profile.endpointOverrides[key]) {
+      setProfiles((current) =>
+        current.map((item) =>
+          item.id === profileId
+            ? { ...item, endpointOverrides: { ...item.endpointOverrides, [key]: body } }
+            : item,
+        ),
+      );
+      return;
+    }
+    setEndpoints((current) =>
+      current.map((item) => (item.id === endpoint.id ? { ...item, mock: body } : item)),
+    );
+    setMockEdits((current) => ({ ...current, [key]: body }));
+  }
+
   function activateProfile(profileId: string) {
     setActiveProfileId(profileId);
     setProfiles((current) =>
@@ -852,6 +959,7 @@ function App() {
               onToggle={toggleProfile}
               onAdd={addProfile}
               onToggleEndpointOverride={toggleEndpointOverride}
+              onEditEndpointMock={editEndpointMock}
             />
           </div>
         )}
@@ -899,6 +1007,10 @@ function App() {
             githubToken={githubToken}
             viewport={viewport}
             sensitivity={sensitivity}
+            onChangeGithubOrg={setGithubOrg}
+            onChangeGithubToken={setGithubToken}
+            onChangeViewport={setViewport}
+            onChangeSensitivity={setSensitivity}
           />
         )}
       </main>
@@ -1073,18 +1185,111 @@ function RepositoryControls({
   );
 }
 
+// Read view (syntax-highlighted JSON) + inline textarea editor for a single
+// mock body. Validates that the draft parses to a JSON object before saving.
+function MockBodyEditor({
+  body,
+  editable,
+  hint,
+  onSave,
+}: {
+  body: Record<string, unknown>;
+  editable: boolean;
+  hint?: string;
+  onSave: (body: Record<string, unknown>) => void;
+}) {
+  const pretty = useMemo(() => JSON.stringify(body ?? {}, null, 2), [body]);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(pretty);
+  const [error, setError] = useState<string | null>(null);
+
+  function start() {
+    setDraft(pretty);
+    setError(null);
+    setEditing(true);
+  }
+
+  function save() {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(draft);
+    } catch {
+      setError('Invalid JSON.');
+      return;
+    }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      setError('Mock body must be a JSON object.');
+      return;
+    }
+    onSave(parsed as Record<string, unknown>);
+    setEditing(false);
+    setError(null);
+  }
+
+  if (!editing) {
+    return (
+      <div className="mock-body">
+        <pre
+          className="mock-json"
+          dangerouslySetInnerHTML={{ __html: highlightJsonHtml(pretty) }}
+        />
+        {editable && (
+          <button type="button" className="mock-edit-btn" onClick={start}>
+            <Pencil size={12} /> Edit
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mock-body editing">
+      <textarea
+        className="mock-json-edit"
+        value={draft}
+        spellCheck={false}
+        rows={Math.min(18, draft.split('\n').length + 1)}
+        onChange={(event) => setDraft(event.target.value)}
+      />
+      {hint && <p className="mock-edit-hint">{hint}</p>}
+      {error && <p className="mock-edit-error">{error}</p>}
+      <div className="mock-edit-actions">
+        <button
+          type="button"
+          className="ghost-button"
+          onClick={() => {
+            setEditing(false);
+            setError(null);
+          }}
+        >
+          Cancel
+        </button>
+        <button type="button" className="primary-action" onClick={save}>
+          Save mock
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function MockProfiles({
   profiles,
   endpoints,
   onToggle,
   onAdd,
   onToggleEndpointOverride,
+  onEditEndpointMock,
 }: {
   profiles: MockProfile[];
   endpoints: EndpointDefinition[];
   onToggle: (profileId: string) => void;
   onAdd: () => void;
   onToggleEndpointOverride?: (endpoint: EndpointDefinition, profileId: string) => void;
+  onEditEndpointMock?: (
+    endpoint: EndpointDefinition,
+    profileId: string,
+    body: Record<string, unknown>,
+  ) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const canExpand = Boolean(onToggleEndpointOverride);
@@ -1189,7 +1394,16 @@ function MockProfiles({
                             label={`Toggle mock for ${endpoint.method} ${endpoint.path} in ${profile.name}`}
                           />
                         </div>
-                        <pre className="mock-json">{JSON.stringify(body ?? {}, null, 2)}</pre>
+                        <MockBodyEditor
+                          body={body ?? {}}
+                          editable={canExpand}
+                          hint={
+                            active
+                              ? 'Editing this profile’s override'
+                              : 'Editing the endpoint default mock'
+                          }
+                          onSave={(next) => onEditEndpointMock?.(endpoint, profile.id, next)}
+                        />
                       </div>
                     );
                   })}
@@ -2156,53 +2370,106 @@ function SettingsView({
   githubToken,
   viewport,
   sensitivity,
+  onChangeGithubOrg,
+  onChangeGithubToken,
+  onChangeViewport,
+  onChangeSensitivity,
 }: {
   workspacePath: string;
   githubOrg: string;
   githubToken: string;
   viewport: { width: number; height: number };
   sensitivity: number;
+  onChangeGithubOrg: (value: string) => void;
+  onChangeGithubToken: (value: string) => void;
+  onChangeViewport: (value: { width: number; height: number }) => void;
+  onChangeSensitivity: (value: number) => void;
 }) {
+  const sensitivityPct =
+    sensitivity < 0.01 ? (sensitivity * 100).toFixed(1) : String(Math.round(sensitivity * 100));
+
   return (
     <div className="content-view">
       <section className="panel-section">
         <div className="section-heading">
           <h2>Settings</h2>
-          <p>Current configuration</p>
+          <p>Edits save automatically.</p>
         </div>
-        <div style={{ padding: '12px' }}>
-          <div style={{ marginBottom: '16px' }}>
-            <strong style={{ display: 'block', marginBottom: '4px' }}>Workspace path</strong>
-            <div style={{ fontSize: '13px', color: '#666', wordBreak: 'break-all' }}>
-              {workspacePath}
+        <div className="settings-form">
+          <label className="settings-field">
+            <span>Workspace path</span>
+            <input value={workspacePath} readOnly title="Set by choosing a workspace folder" />
+            <small>Chosen via the workspace picker.</small>
+          </label>
+
+          <label className="settings-field">
+            <span>GitHub organization</span>
+            <input
+              value={githubOrg}
+              placeholder="acme-pizza"
+              onChange={(event) => onChangeGithubOrg(event.target.value)}
+            />
+          </label>
+
+          <label className="settings-field">
+            <span>GitHub token</span>
+            <input
+              type="password"
+              value={githubToken}
+              placeholder="ghp_…"
+              autoComplete="off"
+              onChange={(event) => onChangeGithubToken(event.target.value)}
+            />
+          </label>
+
+          <div className="settings-field">
+            <span>Default viewport</span>
+            <div className="settings-row">
+              <input
+                type="number"
+                min={1}
+                value={viewport.width}
+                aria-label="Viewport width"
+                onChange={(event) =>
+                  onChangeViewport({
+                    width: Math.max(1, Number(event.target.value) || 0),
+                    height: viewport.height,
+                  })
+                }
+              />
+              <span className="settings-times">×</span>
+              <input
+                type="number"
+                min={1}
+                value={viewport.height}
+                aria-label="Viewport height"
+                onChange={(event) =>
+                  onChangeViewport({
+                    width: viewport.width,
+                    height: Math.max(1, Number(event.target.value) || 0),
+                  })
+                }
+              />
+              <span className="settings-unit">px</span>
             </div>
           </div>
-          <div style={{ marginBottom: '16px' }}>
-            <strong style={{ display: 'block', marginBottom: '4px' }}>GitHub organization</strong>
-            <div style={{ fontSize: '13px', color: '#666' }}>{githubOrg || '(Not set)'}</div>
-          </div>
-          <div style={{ marginBottom: '16px' }}>
-            <strong style={{ display: 'block', marginBottom: '4px' }}>GitHub token</strong>
-            <div style={{ fontSize: '13px', color: '#666' }}>
-              {githubToken ? '•••••••••' : '(Not set)'}
-            </div>
-          </div>
-          <div style={{ marginBottom: '16px' }}>
-            <strong style={{ display: 'block', marginBottom: '4px' }}>Default viewport</strong>
-            <div style={{ fontSize: '13px', color: '#666' }}>
-              {viewport.width} × {viewport.height}px
-            </div>
-          </div>
-          <div style={{ marginBottom: '16px' }}>
-            <strong style={{ display: 'block', marginBottom: '4px' }}>Default sensitivity</strong>
-            <div style={{ fontSize: '13px', color: '#666' }}>
-              {sensitivity === 0
-                ? '0%'
-                : sensitivity < 0.01
-                  ? `${(sensitivity * 100).toFixed(1)}%`
-                  : `${Math.round(sensitivity * 100)}%`}
-            </div>
-          </div>
+
+          <label className="settings-field">
+            <span>Default sensitivity ({sensitivityPct}%)</span>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={0.1}
+              value={sensitivityPct}
+              onChange={(event) =>
+                onChangeSensitivity(
+                  Math.min(100, Math.max(0, Number(event.target.value) || 0)) / 100,
+                )
+              }
+            />
+            <small>Pixel-diff tolerance; lower is stricter.</small>
+          </label>
         </div>
       </section>
     </div>

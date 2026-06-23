@@ -45,6 +45,13 @@ function overlaysRoot() {
   return process.env.DEEP_DISH_OVERLAY_ROOT ?? path.join(app.getPath('userData'), 'overlays');
 }
 
+// Persisted UI state (profiles, edited mock bodies, settings) lives in a single
+// JSON file under userData. App-owned storage, not the user's repo — written
+// atomically (tmp + rename) so a crash mid-write can't corrupt it.
+function statePath() {
+  return process.env.DEEP_DISH_STATE_FILE ?? path.join(app.getPath('userData'), 'state.json');
+}
+
 // Resolve (and scaffold + document) the repo's overlay folder. Overlays are opt-in
 // convenience, so a scaffold failure must not break an otherwise-fine launch/diff —
 // log and proceed without an overlay.
@@ -317,6 +324,33 @@ app.whenReady().then(async () => {
     }
     shell.showItemInFolder(realFile);
     return realFile;
+  });
+
+  // Load persisted UI state. Missing/corrupt file → empty object (first run).
+  registerHandler('state:load', async () => {
+    try {
+      const raw = await fs.readFile(statePath(), 'utf8');
+      const parsed: unknown = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  });
+
+  // Persist UI state atomically. Payload must be a plain object and bounded in
+  // size; it's app-owned data so no path/ref validation applies.
+  registerHandler('state:save', async (_event, raw) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new Error('Invalid state payload.');
+    }
+    const json = JSON.stringify(raw);
+    if (json.length > 5_000_000) throw new Error('State payload too large.');
+    const file = statePath();
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    const tmp = `${file}.tmp`;
+    await fs.writeFile(tmp, json, 'utf8');
+    await fs.rename(tmp, file);
+    return true;
   });
 
   await createWindow();
