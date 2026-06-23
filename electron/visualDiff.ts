@@ -27,6 +27,25 @@ const workingTreeRef = '__working_tree__';
 const defaultViewport: VisualDiffViewport = { width: 1280, height: 900 };
 const diffThreshold = 18;
 
+// Mirror of CONSOLE_PATCH_SCRIPT in src/App.tsx — JSON-stringify object console
+// args before Chromium collapses them to "[object Object]". Kept in sync by hand;
+// both the sidecar webview and this capture window use the same patch.
+const CONSOLE_PATCH_SCRIPT = `(() => {
+  if (window.__ddsConsolePatched) return;
+  window.__ddsConsolePatched = true;
+  const fmt = (a) => {
+    if (typeof a === 'string') return a;
+    if (a instanceof Error) return a.stack || (a.name + ': ' + a.message);
+    if (a === null || a === undefined || typeof a !== 'object') return String(a);
+    try { return JSON.stringify(a, null, 2); } catch (_e) { return String(a); }
+  };
+  for (const m of ['log', 'info', 'warn', 'error', 'debug']) {
+    const orig = console[m];
+    if (typeof orig !== 'function') continue;
+    console[m] = (...args) => orig.apply(console, args.map(fmt));
+  }
+})();`;
+
 function trace(message: string) {
   if (!process.env.DEEP_DISH_DIFF_TRACE) return;
   try {
@@ -516,6 +535,12 @@ export async function runVisualDiff(request: VisualDiffRequest): Promise<VisualD
     // Capture the rendered page's browser console (JS errors, failed fetches) —
     // the failure mode where the server returns 200 but the page is blank/broken.
     attachConsoleCapture(captureWindow.webContents, () => currentCaptureServer, sink);
+    // Patch the captured page's console so object args are JSON-stringified before
+    // Chromium collapses them to "[object Object]". Mirrors CONSOLE_PATCH_SCRIPT in
+    // src/App.tsx (the sidecar webview path); both runtime paths get the same fix.
+    captureWindow.webContents.on('dom-ready', () => {
+      captureWindow.webContents.executeJavaScript(CONSOLE_PATCH_SCRIPT).catch(() => undefined);
+    });
 
     // Apply mock profile overrides via session-level HTTP interception.
     // Gated on non-empty overrides so the default (no-override) path is
@@ -527,14 +552,25 @@ export async function runVisualDiff(request: VisualDiffRequest): Promise<VisualD
     const ses = captureWindow.webContents.session;
     if (interceptionActive) {
       ses.protocol.handle('http', async (req) => {
-        const mocked = matchOverride(overrides, req.method, new URL(req.url).pathname);
+        const pathname = new URL(req.url).pathname;
+        const mocked = matchOverride(overrides, req.method, pathname);
         if (mocked) {
+          sink.append(currentCaptureServer, 'network', `${req.method} ${pathname} → 200 (mock)`);
           return new Response(JSON.stringify(mocked), {
             status: 200,
             headers: { 'content-type': 'application/json' },
           });
         }
-        return electronNet.fetch(req, { bypassCustomProtocolHandlers: true });
+        const res = await electronNet.fetch(req, { bypassCustomProtocolHandlers: true });
+        // Log only API-ish passthroughs to avoid drowning the log in asset loads.
+        if (pathname.startsWith('/api') || pathname.includes('/api/')) {
+          sink.append(
+            currentCaptureServer,
+            'network',
+            `${req.method} ${pathname} → ${res.status} (server)`,
+          );
+        }
+        return res;
       });
     }
 

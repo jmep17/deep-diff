@@ -1,7 +1,30 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
+
+const execFileAsync = promisify(execFile);
+
+// Resolve a GitHub token WITHOUT persisting it: prefer a session-supplied token
+// (typed into Settings this run, never written to disk), then env vars, then the
+// `gh` CLI. Returns undefined for unauthenticated (public) requests.
+let cachedGhToken: string | null | undefined;
+async function resolveGitHubToken(sessionToken?: string): Promise<string | undefined> {
+  const session = sessionToken?.trim();
+  if (session) return session;
+  if (process.env.GITHUB_TOKEN?.trim()) return process.env.GITHUB_TOKEN.trim();
+  if (process.env.GH_TOKEN?.trim()) return process.env.GH_TOKEN.trim();
+  if (cachedGhToken !== undefined) return cachedGhToken ?? undefined;
+  try {
+    const { stdout } = await execFileAsync('gh', ['auth', 'token']);
+    cachedGhToken = stdout.trim() || null;
+  } catch {
+    cachedGhToken = null;
+  }
+  return cachedGhToken ?? undefined;
+}
 import { buildChangeLinks, getChangedFiles } from './changeLink.js';
 import { scanEndpoints } from './endpointScanner.js';
 import {
@@ -253,14 +276,14 @@ app.whenReady().then(async () => {
     return scanEndpoints(validated);
   });
 
-  registerHandler('github:listRepos', (_event, raw) => {
+  registerHandler('github:listRepos', async (_event, raw) => {
     const request = validateGitHubRepositoryRequest(raw);
-    return fetchGitHubRepositories(request);
+    return fetchGitHubRepositories({ ...request, token: await resolveGitHubToken(request.token) });
   });
 
-  registerHandler('github:listBranches', (_event, raw) => {
+  registerHandler('github:listBranches', async (_event, raw) => {
     const request = validateGitHubBranchRequest(raw);
-    return fetchGitHubBranches(request);
+    return fetchGitHubBranches({ ...request, token: await resolveGitHubToken(request.token) });
   });
 
   registerHandler('sidecar:launch', async (_event, raw) => {

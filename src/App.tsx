@@ -387,7 +387,8 @@ function App() {
         if (saved.settings) {
           const s = saved.settings;
           if (typeof s.githubOrg === 'string') setGithubOrg(s.githubOrg);
-          if (typeof s.githubToken === 'string') setGithubToken(s.githubToken);
+          // NB: githubToken is intentionally NOT persisted (never written to disk);
+          // it's resolved at use-time in the main process from env / `gh auth token`.
           if (typeof s.sensitivity === 'number') setSensitivity(s.sensitivity);
           if (s.viewport) setViewport(s.viewport);
         }
@@ -412,20 +413,12 @@ function App() {
         profiles,
         activeProfileId,
         mockEdits,
-        settings: { githubOrg, githubToken, sensitivity, viewport },
+        // githubToken deliberately omitted — secrets are never written to disk.
+        settings: { githubOrg, sensitivity, viewport },
       });
     }, 400);
     return () => window.clearTimeout(timer);
-  }, [
-    stateHydrated,
-    profiles,
-    activeProfileId,
-    mockEdits,
-    githubOrg,
-    githubToken,
-    sensitivity,
-    viewport,
-  ]);
+  }, [stateHydrated, profiles, activeProfileId, mockEdits, githubOrg, sensitivity, viewport]);
 
   useEffect(() => {
     if (!bridge?.onServerLog) return;
@@ -718,6 +711,7 @@ function App() {
   // reloads the preview. A visual-diff run still reads them at diff time.
   function toggleEndpointOverride(endpoint: EndpointDefinition, profileId = activeProfileId) {
     const key = `${endpoint.method.toUpperCase()}:${endpoint.path}`;
+    let turnedOn = false;
     setProfiles((current) =>
       current.map((profile) => {
         if (profile.id !== profileId) return profile;
@@ -726,10 +720,17 @@ function App() {
           delete next[key];
         } else {
           next[key] = endpoint.mock;
+          turnedOn = true;
         }
-        return { ...profile, endpointOverrides: next };
+        // Turning a mock ON only has runtime effect if the profile is enabled —
+        // the sidecar/diff send overrides solely from the active *enabled* profile.
+        // Auto-enable so the toggle the user just flipped actually applies.
+        return { ...profile, enabled: turnedOn ? true : profile.enabled, endpointOverrides: next };
       }),
     );
+    // ...and make it the active profile, so the runtime (which uses only the
+    // active profile) picks up the mock the user just enabled.
+    if (turnedOn && profileId !== activeProfileId) setActiveProfileId(profileId);
   }
 
   // Edit a mock body. When the profile has an active override for the endpoint,
@@ -2570,10 +2571,14 @@ function SettingsView({
             <input
               type="password"
               value={githubToken}
-              placeholder="ghp_…"
+              placeholder="Uses gh CLI / GITHUB_TOKEN by default"
               autoComplete="off"
               onChange={(event) => onChangeGithubToken(event.target.value)}
             />
+            <small>
+              Session only — never saved to disk. Leave blank to use <code>gh auth token</code> or{' '}
+              <code>GITHUB_TOKEN</code>.
+            </small>
           </label>
 
           <div className="settings-field">
