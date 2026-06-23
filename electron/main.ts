@@ -1,5 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -63,6 +65,7 @@ import {
   writeOverlayFile,
 } from './repoOverlay.js';
 import { getLogDir, logBus } from './serverLogs.js';
+import type { RepositorySummary } from './types.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -114,6 +117,83 @@ async function resolveOverlayDir(repoPath: string): Promise<string | undefined> 
 // Workspace directories explicitly chosen by the user via the open-dialog this session.
 // All repoPath values arriving over IPC must be at or under one of these roots.
 const authorizedRoots = new Set<string>();
+
+// Temp parent dirs holding clones of remote (GitHub) repos opened this session.
+// Removed on quit. The clone runs exactly like a local repo afterward.
+const tempClones = new Set<string>();
+
+// Clone a remote GitHub repo to a temp dir, authorize it, and return a local
+// RepositorySummary so the rest of the app (scan / sidecar / diff) treats it like
+// any local repo. Uses resolveGitHubToken (env / `gh`) for private repos; the
+// token is stripped from the clone's remote afterward so it is never persisted.
+async function cloneAndOpenRemote(owner: string, repository: string): Promise<RepositorySummary> {
+  const token = await resolveGitHubToken();
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'deep-diff-clone-'));
+  const repoDir = path.join(parent, repository);
+  const publicUrl = `https://github.com/${owner}/${repository}.git`;
+  const cloneUrl = token
+    ? `https://x-access-token:${token}@github.com/${owner}/${repository}.git`
+    : publicUrl;
+  try {
+    // --no-single-branch fetches every head; then materialize a local branch per
+    // remote head so the worktree-based diff can check out non-default branches.
+    await execFileAsync('git', ['clone', '--no-single-branch', cloneUrl, repoDir]);
+    await execFileAsync('git', ['-C', repoDir, 'remote', 'set-url', 'origin', publicUrl]);
+    const { stdout } = await execFileAsync('git', [
+      '-C',
+      repoDir,
+      'branch',
+      '-r',
+      '--format=%(refname:short)',
+    ]);
+    for (const ref of stdout.split('\n').map((s) => s.trim())) {
+      if (!ref.startsWith('origin/') || ref.endsWith('/HEAD')) continue;
+      const name = ref.slice('origin/'.length);
+      await execFileAsync('git', ['-C', repoDir, 'branch', '--force', name, ref]).catch(
+        () => undefined,
+      );
+    }
+  } catch (err) {
+    await fs.rm(parent, { recursive: true, force: true }).catch(() => undefined);
+    throw err instanceof Error ? err : new Error(String(err));
+  }
+  const real = await fs.realpath(repoDir);
+  authorizedRoots.add(real);
+  tempClones.add(parent);
+  const branches = await listLocalBranches(real);
+  let defaultBranch = branches[0] ?? 'main';
+  try {
+    const { stdout } = await execFileAsync('git', [
+      '-C',
+      real,
+      'rev-parse',
+      '--abbrev-ref',
+      'HEAD',
+    ]);
+    defaultBranch = stdout.trim() || defaultBranch;
+  } catch {
+    /* keep fallback */
+  }
+  return {
+    id: `clone:${owner}/${repository}`,
+    name: repository,
+    fullName: `${owner}/${repository}`,
+    source: 'local',
+    path: real,
+    defaultBranch,
+  };
+}
+
+function cleanupTempClones() {
+  for (const dir of tempClones) {
+    try {
+      fsSync.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
+  }
+  tempClones.clear();
+}
 
 // The primary app window. Tracked at module scope so the logBus subscription can
 // stream captured server/page logs to it (and only it — never the hidden
@@ -340,6 +420,12 @@ app.whenReady().then(async () => {
     return fetchGitHubBranches({ ...request, token: await resolveGitHubToken() });
   });
 
+  // Clone a remote repo to a temp dir and return it as a local, runnable repo.
+  registerHandler('repo:cloneAndOpen', async (_event, raw) => {
+    const request = validateGitHubBranchRequest(raw);
+    return cloneAndOpenRemote(request.owner, request.repository);
+  });
+
   registerHandler('sidecar:launch', async (_event, raw) => {
     const request = await validateSidecarLaunchRequest(raw, authorizedRoots);
     if (request.repoPath) {
@@ -494,8 +580,11 @@ app.whenReady().then(async () => {
   });
 });
 
+app.on('will-quit', cleanupTempClones);
+
 app.on('window-all-closed', () => {
   stopSidecar();
+  cleanupTempClones();
   if (process.platform !== 'darwin') {
     app.quit();
   }

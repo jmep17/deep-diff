@@ -23,6 +23,7 @@ declare global {
       scanEndpoints: (repoPath: string) => Promise<EndpointDefinition[]>;
       fetchGitHubRepos: (request: { organization: string }) => Promise<RepositorySummary[]>;
       fetchGitHubBranches: (request: { owner: string; repository: string }) => Promise<string[]>;
+      cloneAndOpen: (request: { owner: string; repository: string }) => Promise<RepositorySummary>;
       launchSidecar: (request: {
         repoPath?: string;
         branch?: string;

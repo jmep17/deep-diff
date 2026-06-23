@@ -166,13 +166,24 @@ interface GitHubBranchPayload {
 export async function fetchGitHubRepositories(request: GitHubRepositoryRequest) {
   const organization = request.organization.trim();
   if (!organization) {
-    throw new Error('GitHub organization is required.');
+    throw new Error('GitHub organization or user is required.');
   }
 
-  const repos = await githubRequestAll<GitHubRepositoryPayload>(
-    `https://api.github.com/orgs/${encodeURIComponent(organization)}/repos?per_page=100&sort=updated`,
-    request.token,
-  );
+  const query = '?per_page=100&sort=updated';
+  const name = encodeURIComponent(organization);
+  let repos: GitHubRepositoryPayload[];
+  try {
+    repos = await githubRequestAll<GitHubRepositoryPayload>(
+      `https://api.github.com/orgs/${name}/repos${query}`,
+      request.token,
+    );
+  } catch {
+    // Not an organization (404) — fall back to a personal account's repos.
+    repos = await githubRequestAll<GitHubRepositoryPayload>(
+      `https://api.github.com/users/${name}/repos${query}`,
+      request.token,
+    );
+  }
 
   return repos.map<RepositorySummary>((repo) => ({
     id: `github:${repo.id}`,

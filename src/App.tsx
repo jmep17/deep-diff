@@ -474,6 +474,8 @@ function App() {
         /* ignore */
       }
     })();
+    // Run once on mount; hydrateRepository is intentionally not a dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Persist UI state (debounced) after hydration. Skips the pre-hydration render
@@ -607,25 +609,16 @@ function App() {
       return;
     }
 
-    if (repo.source === 'github' && repo.owner && bridge) {
-      setOverlayPath(null); // remote repo has no local worktree to overlay
+    if (repo.source === 'github' && repo.owner && bridge?.cloneAndOpen) {
+      setOverlayPath(null);
       try {
-        setBusy('Loading GitHub branches');
-        const remoteBranches = await bridge.fetchGitHubBranches({
-          owner: repo.owner,
-          repository: repo.name,
-        });
-        setBranches(remoteBranches.length ? remoteBranches : [nextBase]);
-        setTargetBranch(
-          remoteBranches.find((branch) => branch !== nextBase) ?? remoteBranches[0] ?? nextBase,
-        );
-        setEndpoints(withMockEdits(seedEndpoints, mockEditsRef.current));
-        setMessage(
-          'GitHub branches loaded. Clone or open the repository locally to run endpoint scanning.',
-        );
+        setBusy(`Cloning ${repo.fullName}…`);
+        // Clone the remote repo to a temp dir; it comes back as a local repo with
+        // a real path, then hydrates (scan + branches) exactly like a local one.
+        const cloned = await bridge.cloneAndOpen({ owner: repo.owner, repository: repo.name });
+        await hydrateRepository(cloned);
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : 'GitHub branch lookup failed.');
-      } finally {
+        setMessage(error instanceof Error ? error.message : 'Failed to clone the repository.');
         setBusy(null);
       }
       return;

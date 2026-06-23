@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld('deepDiff', {
     ipcRenderer.invoke('github:listRepos', request),
   fetchGitHubBranches: (request: GitHubBranchRequest) =>
     ipcRenderer.invoke('github:listBranches', request),
+  // Clone a remote repo to a temp dir and return it as a local, runnable repo.
+  cloneAndOpen: (request: GitHubBranchRequest) => ipcRenderer.invoke('repo:cloneAndOpen', request),
   launchSidecar: (request: SidecarLaunchRequest) => ipcRenderer.invoke('sidecar:launch', request),
   stopSidecar: () => ipcRenderer.invoke('sidecar:stop'),
   getSidecarStatus: () => ipcRenderer.invoke('sidecar:status'),
