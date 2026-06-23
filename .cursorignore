@@ -1,0 +1,83 @@
+# .cursorignore — block Cursor AI from reading/indexing secrets.
+# Covers this repo AND any nested repo added for visual diff / sidecar.
+# Same glob syntax as .gitignore; templates whitelisted at the bottom.
+
+# Env files
+.env
+.env.*
+**/.env
+**/.env.*
+
+# Private keys / certificates
+*.pem
+*.key
+*.p12
+*.pfx
+*.p8
+*.crt
+*.cer
+*.der
+*.keystore
+*.jks
+*.ppk
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*.p8
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+**/id_rsa
+**/id_ed25519
+
+# Cloud / service credentials
+.netrc
+.npmrc
+**/.npmrc
+.pypirc
+credentials
+credentials.json
+**/credentials.json
+gha-creds-*.json
+service-account*.json
+**/service-account*.json
+*-key.json
+gcp-*.json
+aws.json
+.aws/
+.gcp/
+
+# Token / secret stashes
+secrets.*
+secret.*
+*.secret
+*.secrets
+**/secrets.*
+*token*.json
+*.token
+.htpasswd
+auth.json
+**/auth.json
+
+# Local overlay storage (may hold real auth config for diffed repos)
+overlays/
+**/overlays/
+
+# Run artifacts that capture added-repo dev-server stdout/stderr (can leak secrets)
+*.log
+*.trace
+**/*.trace
+deep-diff-logs/
+**/deep-diff-logs/
+logs/
+**/logs/
+
+# Allow templates (no real secrets)
+!.env.example
+!.env.sample
+!.env.template
+!**/.env.example
+!**/.env.sample
+!**/.env.template
