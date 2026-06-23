@@ -59,6 +59,27 @@ const files = {
     import axios from 'axios';
     it('loads', () => axios.get('/api/from-test'));
   `,
+  // Modern call shapes the old regex scanner missed — only reachable via the AST pass
+  // with intra-file const-folding.
+  'modern-clients.ts': `
+    import axios from 'axios';
+    import useSWR from 'swr';
+    const BASE = '/api/v2';
+    export function ModernThing() {
+      fetch(BASE + '/products');                 // const-folded concat
+      axios({ url: '/api/cart', method: 'DELETE' }); // config-object axios
+      $.ajax({ url: '/api/legacy' });            // jQuery-style config object
+      useSWR('/api/profile', fetcher);           // URL-first data hook
+      fetch(
+        '/api/orders',
+        {
+          headers: { 'content-type': 'application/json' },
+          method: 'POST',
+        },
+      );                                         // method far from the open paren
+      axios.get(\`\${BASE}/inventory\`);          // template + const base
+    }
+  `,
 };
 
 for (const [name, content] of Object.entries(files)) {
@@ -122,6 +143,18 @@ assert(
   health && health.framework === 'Express/Fastify',
   '/api/health keeps the route definition, not the call site',
   health?.framework,
+);
+
+// Modern call shapes (AST-only) — the regex scanner missed all of these.
+assert(find('GET', '/api/v2/products'), 'const-folds fetch(BASE + "/products")');
+assert(find('DELETE', '/api/cart'), 'config-object axios({url,method})');
+assert(find('GET', '/api/legacy'), 'config-object $.ajax({url})');
+assert(find('GET', '/api/profile'), 'URL-first hook useSWR(url)');
+assert(find('POST', '/api/orders'), 'multi-line fetch reads method anywhere in options');
+assert(find('GET', '/api/v2/inventory'), 'template `${BASE}/inventory` folds to real path');
+assert(
+  !byKey.has('GET:/:BASE/inventory'),
+  'template+const does NOT leak a bogus /:BASE/inventory key',
 );
 
 // Every detected call-site endpoint still satisfies the inventory contract.

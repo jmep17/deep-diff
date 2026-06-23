@@ -1,4 +1,4 @@
-import type { EndpointDefinition, MockProfile, RepositorySummary } from '../lib/types';
+import type { EndpointDefinition, RepositorySummary } from '../lib/types';
 
 export const seedRepositories: RepositorySummary[] = [
   {
@@ -121,34 +121,5 @@ export const seedEndpoints: EndpointDefinition[] = [
       { name: 'currency', type: 'string', example: 'usd' },
     ],
     mock: { clientSecret: 'pi_mock_secret', amount: 2709, currency: 'usd' },
-  },
-];
-
-export const seedProfiles: MockProfile[] = [
-  {
-    id: 'margherita-stable',
-    name: 'Margherita Stable',
-    description: 'Default valid data for repeatable snapshots',
-    color: 'green',
-    enabled: true,
-    endpointOverrides: {},
-  },
-  {
-    id: 'pepperoni-edge',
-    name: 'Pepperoni Edge Cases',
-    description: 'Long labels, empty carts, and payment failures',
-    color: 'red',
-    enabled: false,
-    endpointOverrides: {
-      'GET:/api/cart': { subtotal: 0, tax: 0, total: 0 },
-    },
-  },
-  {
-    id: 'parmesan-locale',
-    name: 'Parmesan Locale',
-    description: 'Currency, timezone, and formatting variants',
-    color: 'yellow',
-    enabled: false,
-    endpointOverrides: {},
   },
 ];

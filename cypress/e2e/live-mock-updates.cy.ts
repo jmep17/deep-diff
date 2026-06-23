@@ -39,21 +39,34 @@ describe('Live mock updates without sidecar relaunch', () => {
     cy.get('.floating-toolbar [aria-label="Endpoint mocks"]').click({ force: true });
   });
 
-  it('pushes overrides live on toggle-on and clears them on toggle-off, without relaunch', () => {
-    // Launch applies the current overrides itself; the renderer records that
-    // baseline without re-pushing, so nothing is sent until a real change.
+  it('pushes the updated override map live on each toggle, without relaunch', () => {
+    // Every endpoint is mocked by default, so launch applied the full map itself;
+    // the renderer records that baseline without re-pushing — nothing is sent until
+    // a real change.
     cy.get('@setOverrides').should('not.have.been.called');
 
-    // Toggle the first endpoint mock ON → effective overrides gain its key, and
-    // the change is pushed to the running sidecar (AC1: no relaunch).
+    // Toggle the first endpoint mock OFF → it drops out of the pushed map, which
+    // still carries the remaining mock (AC1: no relaunch).
     cy.get('.toolbar-endpoint').first().find('[role="switch"]').click({ force: true });
-    cy.get('@setOverrides').should('have.been.calledWithMatch', {
-      'GET:/api/public/status': { id: 'status_fixture' },
-    });
+    cy.get('@setOverrides')
+      .its('lastCall.args.0')
+      .should('deep.equal', {
+        'GET:/api/auth/:auth0': {
+          callbackUrl: 'https://example.com/api/auth/callback',
+          status: 'redirect-ready',
+        },
+      });
 
-    // Toggle it OFF → effective overrides empty again → an empty map is pushed,
-    // which makes the proxy pass through to the real server (AC3).
+    // Toggle it back ON → the full map (both mocks) is pushed again (AC3).
     cy.get('.toolbar-endpoint').first().find('[role="switch"]').click({ force: true });
-    cy.get('@setOverrides').its('lastCall.args.0').should('deep.equal', {});
+    cy.get('@setOverrides')
+      .its('lastCall.args.0')
+      .should('deep.equal', {
+        'GET:/api/public/status': { id: 'status_fixture', status: 'ok' },
+        'GET:/api/auth/:auth0': {
+          callbackUrl: 'https://example.com/api/auth/callback',
+          status: 'redirect-ready',
+        },
+      });
   });
 });

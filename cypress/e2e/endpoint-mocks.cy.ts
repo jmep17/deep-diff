@@ -50,16 +50,16 @@ describe('Endpoint detection and mocks', () => {
     cy.contains('button', 'Select organization folder').click();
 
     cy.contains('2 endpoints detected from auth0-routes-fixture.').should('be.visible');
-    cy.contains('.endpoint-section', '2 endpoints detected').should('be.visible');
+    // Every detected endpoint is mocked by default (single live set).
+    cy.contains('.endpoint-section', '2 of 2 mocked').should('be.visible');
     cy.contains('.endpoint-row', '/api/public/status').within(() => {
       cy.contains('GET').should('be.visible');
-      cy.contains('200').should('be.visible');
     });
     cy.contains('.endpoint-row', '/api/auth/:auth0').within(() => {
       cy.contains('GET').should('be.visible');
-      cy.contains('200').should('be.visible');
     });
-    cy.contains('2 endpoints can be hydrated into a profile.').should('be.visible');
+    cy.contains('.endpoint-section button', 'Enable all').should('be.visible');
+    cy.contains('.endpoint-section button', 'Disable all').should('be.visible');
   });
 
   it('filters detected endpoints and updates the selected mock shape', () => {
@@ -67,7 +67,8 @@ describe('Endpoint detection and mocks', () => {
 
     cy.get('input[placeholder="Search endpoints"]').clear().type('auth');
     cy.get('.endpoint-list .endpoint-row').should('have.length', 1);
-    cy.contains('.endpoint-row', '/api/auth/:auth0').click().should('have.class', 'selected');
+    cy.contains('.endpoint-row', '/api/auth/:auth0').find('.mock-row-main').click();
+    cy.contains('.endpoint-row', '/api/auth/:auth0').should('have.class', 'selected');
 
     cy.contains('.sidecar-card', 'Selected mock').within(() => {
       cy.contains('/api/auth/:auth0').should('be.visible');
@@ -79,14 +80,28 @@ describe('Endpoint detection and mocks', () => {
     });
   });
 
-  it('creates and applies a mock profile from detected endpoints', () => {
+  it('mocks every detected endpoint by default and toggles them individually', () => {
     cy.contains('button', 'Select organization folder').click();
-    cy.contains('button', 'New').click();
 
-    cy.contains('Mock Profile 4 created with 2 endpoint mocks.').should('be.visible');
-    cy.contains('.profile-row', 'Mock Profile 4').should('be.visible');
+    // Single live set: every detected endpoint is mocked and applied to the next run.
+    cy.get('[data-testid="empty-report"]').should(
+      'contain.text',
+      '2 of 2 endpoint mocks active for the next comparison run',
+    );
 
-    cy.contains('.browser-preview-card', 'Browser preview').find('select').select('Mock Profile 4');
-    cy.get('[data-testid="empty-report"]').should('contain.text', 'Mock Profile 4 will be applied');
+    // Turning one endpoint's mock off drops the live count everywhere.
+    cy.get('[aria-label="Mock GET /api/auth/:auth0"]').click();
+    cy.contains('.endpoint-section', '1 of 2 mocked').should('be.visible');
+    cy.get('[data-testid="empty-report"]').should(
+      'contain.text',
+      '1 of 2 endpoint mocks active for the next comparison run',
+    );
+
+    // The master switch pauses the whole set (full pass-through on the next run).
+    cy.get('[aria-label="Enable all endpoint mocks"]').click();
+    cy.get('[data-testid="empty-report"]').should(
+      'contain.text',
+      'Mocks paused for the next comparison run',
+    );
   });
 });

@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import ts from 'typescript';
 import type { EndpointDefinition, EndpointField } from './types.js';
 
 const ignoredDirectories = new Set([
@@ -303,12 +304,167 @@ function normalizeCallPath(
   return { path: value, external, host };
 }
 
-// Pull an HTTP method out of a call's options object (`{ method: 'POST' }`).
-function methodFromOptions(window: string): string | undefined {
-  const match = window.match(/\bmethod\s*:\s*['"]([A-Za-z]+)['"]/);
-  if (!match) return undefined;
-  const method = match[1].toUpperCase();
-  return httpMethodSet.has(method) ? method : undefined;
+// --- AST-based call detection (replaces the old line-window regex scan) ---
+//
+// The regex scanner only saw a call when a *string literal* immediately followed
+// `(`, so it missed every real-world shape that isn't `fetch('/x')`: URLs built
+// from a const (`BASE + '/x'`), config-object forms (`axios({url})`, `$.ajax({url})`),
+// and hook wrappers (`useSWR('/x')`). Parsing each file to a TS AST lets us read the
+// call's structure regardless of formatting and fold simple constants, so those
+// literal-but-not-regex-shaped endpoints become mockable. Truly dynamic URLs
+// (runtime data/env) remain runtime-discovery's job.
+
+function scriptKindForFile(filePath: string): ts.ScriptKind {
+  switch (path.extname(filePath)) {
+    case '.tsx':
+      return ts.ScriptKind.TSX;
+    case '.ts':
+      return ts.ScriptKind.TS;
+    case '.jsx':
+      return ts.ScriptKind.JSX;
+    case '.mjs':
+    case '.cjs':
+    case '.js':
+      return ts.ScriptKind.JS;
+    default:
+      return ts.ScriptKind.Unknown;
+  }
+}
+
+// Build a map of `const NAME = <string>` bindings so a URL assembled from a constant
+// (`const BASE='/api'; fetch(BASE+'/x')`) can be folded to its literal value. Only
+// string-resolvable initializers are recorded; values are resolved lazily with a
+// cycle guard so `const B = A + '/x'` works regardless of declaration order.
+function collectStringConstants(sourceFile: ts.SourceFile): Map<string, ts.Expression> {
+  const raw = new Map<string, ts.Expression>();
+  const visit = (node: ts.Node) => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      if (!raw.has(node.name.text)) raw.set(node.name.text, node.initializer);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return raw;
+}
+
+// Resolve an expression node to a concrete URL string when statically knowable.
+// Template substitutions of a *bare identifier* are preserved as `${name}` so the
+// caller's normalizeCallPath maps them to `:name` segments (matching prior behavior);
+// substitutions that fold to a const string are inlined. Returns undefined when any
+// part is unresolvable (computed at runtime) — those are left to runtime discovery.
+function resolveUrlString(
+  node: ts.Expression,
+  constants: Map<string, ts.Expression>,
+  seen = new Set<string>(),
+): string | undefined {
+  if (ts.isStringLiteralLike(node)) return node.text;
+
+  if (ts.isTemplateExpression(node)) {
+    let out = node.head.text;
+    for (const span of node.templateSpans) {
+      const expr = span.expression;
+      const folded = resolveUrlString(expr, constants, seen);
+      if (folded !== undefined) {
+        out += folded;
+      } else if (ts.isIdentifier(expr)) {
+        out += `\${${expr.text}}`;
+      } else {
+        out += '${param}';
+      }
+      out += span.literal.text;
+    }
+    return out;
+  }
+
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const left = resolveUrlString(node.left, constants, seen);
+    const right = resolveUrlString(node.right, constants, seen);
+    if (left === undefined || right === undefined) return undefined;
+    return left + right;
+  }
+
+  if (ts.isIdentifier(node)) {
+    if (seen.has(node.text)) return undefined;
+    const bound = constants.get(node.text);
+    if (!bound) return undefined;
+    return resolveUrlString(bound, constants, new Set(seen).add(node.text));
+  }
+
+  if (ts.isParenthesizedExpression(node)) {
+    return resolveUrlString(node.expression, constants, seen);
+  }
+
+  return undefined;
+}
+
+// Read `method: 'POST'` out of an options/config object literal.
+function methodFromObjectLiteral(node: ts.ObjectLiteralExpression): string | undefined {
+  for (const prop of node.properties) {
+    if (
+      ts.isPropertyAssignment(prop) &&
+      (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name)) &&
+      prop.name.text === 'method' &&
+      ts.isStringLiteralLike(prop.initializer)
+    ) {
+      const method = prop.initializer.text.toUpperCase();
+      return httpMethodSet.has(method) ? method : undefined;
+    }
+  }
+  return undefined;
+}
+
+// Pull the `url` value out of a config object (`axios({url})`, `$.ajax({url})`).
+function urlPropFromObjectLiteral(
+  node: ts.ObjectLiteralExpression,
+  constants: Map<string, ts.Expression>,
+): string | undefined {
+  for (const prop of node.properties) {
+    if (
+      ts.isPropertyAssignment(prop) &&
+      (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name)) &&
+      prop.name.text === 'url'
+    ) {
+      return resolveUrlString(prop.initializer, constants, new Set());
+    }
+  }
+  return undefined;
+}
+
+// Strip `await`/`(...)`/non-null/`as` wrappers to reach the underlying call argument.
+function unwrapExpression(node: ts.Expression): ts.Expression {
+  let current: ts.Expression = node;
+  for (;;) {
+    if (ts.isParenthesizedExpression(current) || ts.isAwaitExpression(current)) {
+      current = current.expression;
+    } else if (ts.isNonNullExpression(current) || ts.isAsExpression(current)) {
+      current = current.expression;
+    } else {
+      return current;
+    }
+  }
+}
+
+// Hook/wrapper callees whose first argument is conventionally the request URL.
+const URL_FIRST_ARG_CALLEES = new Set(['useSWR', 'useSWRImmutable', 'useQuery']);
+// Method names whose argument is a `{ url, method }` config object: `$.ajax({url})`,
+// `axios.request({url})`.
+const CONFIG_OBJECT_METHOD_NAMES = new Set(['ajax', 'request']);
+
+// Walk a receiver/callee chain to its leftmost identifier so the denylist also rejects
+// chained receivers, e.g. supertest's `request(app).get('/x')` (leftmost = `request`)
+// while still allowing `axios.create().get('/x')` (leftmost = `axios`).
+function leftmostIdentifier(node: ts.Expression): string | undefined {
+  let current: ts.Expression = unwrapExpression(node);
+  for (;;) {
+    if (ts.isIdentifier(current)) return current.text;
+    if (ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current)) {
+      current = current.expression;
+    } else if (ts.isCallExpression(current)) {
+      current = current.expression;
+    } else {
+      return undefined;
+    }
+  }
 }
 
 function buildCallEndpoint(
@@ -333,51 +489,117 @@ function buildCallEndpoint(
 }
 
 /**
- * Detect outbound API calls the app *makes* — `fetch('/x')`, `axios('/x',{method})`,
- * `axios.get('/x')`, and generic `IDENT.method('/x')` on any receiver. These call
- * sites yield the `METHOD:path` the mock proxy needs, so detecting them makes an
- * endpoint mockable even when no route-definition source file exists. Only literal
- * URLs are reachable here; dynamic/computed URLs are caught by runtime discovery.
+ * Detect outbound API calls the app *makes* by walking the file's TS/JS AST:
+ * `fetch('/x')`, `axios('/x'|{url})`, `axios.get('/x')`, generic `IDENT.method('/x')`
+ * on any receiver, config-object forms (`$.ajax({url})`), and URL-first hooks
+ * (`useSWR('/x')`) — with intra-file const-folding (`BASE + '/x'`). These call sites
+ * yield the `METHOD:path` the mock proxy needs, so detecting them makes an endpoint
+ * mockable even when no route-definition source file exists. Only *statically
+ * resolvable* URLs are reachable here; URLs computed from runtime data are caught by
+ * runtime discovery (the always-on proxy).
  */
 function detectApiCalls(repoPath: string, filePath: string, source: string) {
   const relFilePath = path.relative(repoPath, filePath);
   if (isTestFile(relFilePath.replaceAll(path.sep, '/'))) return [];
 
+  const scriptKind = scriptKindForFile(filePath);
+  if (scriptKind === ts.ScriptKind.Unknown) return [];
+
+  let sourceFile: ts.SourceFile;
+  try {
+    sourceFile = ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true, scriptKind);
+  } catch {
+    return []; // unparseable file — leave it to runtime discovery
+  }
+
+  const constants = collectStringConstants(sourceFile);
   const endpoints: EndpointDefinition[] = [];
 
-  // Generic method call on any receiver: `client.get('/x')`, `api.post('/x')`. The
-  // method comes from the call name; `app/router/...` definitions also match here at
-  // medium and lose dedup to their high-confidence detection in detectCodeRoutes.
-  const methodCallPattern =
-    /\b([A-Za-z_$][\w$]*)\s*\.\s*(get|post|put|patch|delete)\s*\(\s*(['"`])([^'"`]+)\3/gi;
-  for (const match of source.matchAll(methodCallPattern)) {
-    if (CALL_RECEIVER_DENYLIST.has(match[1])) continue;
-    const normalized = normalizeCallPath(match[4]);
-    if (!normalized) continue;
-    endpoints.push(
-      buildCallEndpoint(match[2].toUpperCase(), normalized, relFilePath, 'HTTP client call'),
-    );
-  }
+  const record = (method: string, urlString: string | undefined, label: string) => {
+    if (urlString === undefined) return;
+    const normalized = normalizeCallPath(urlString);
+    if (!normalized) return;
+    endpoints.push(buildCallEndpoint(method, normalized, relFilePath, label));
+  };
 
-  // Bare fetch('/x', { method }).
-  const fetchPattern = /\bfetch\s*\(\s*(['"`])([^'"`]+)\1/gi;
-  for (const match of source.matchAll(fetchPattern)) {
-    const normalized = normalizeCallPath(match[2]);
-    if (!normalized) continue;
-    const end = (match.index ?? 0) + match[0].length;
-    const method = methodFromOptions(source.slice(end, end + 200)) ?? 'GET';
-    endpoints.push(buildCallEndpoint(method, normalized, relFilePath, 'fetch'));
-  }
+  const resolveArg = (arg: ts.Expression | undefined) =>
+    arg ? resolveUrlString(unwrapExpression(arg), constants, new Set()) : undefined;
 
-  // Bare axios('/x', { method }) — axios.get/post fall under the generic pattern.
-  const axiosPattern = /\baxios\s*\(\s*(['"`])([^'"`]+)\1/gi;
-  for (const match of source.matchAll(axiosPattern)) {
-    const normalized = normalizeCallPath(match[2]);
-    if (!normalized) continue;
-    const end = (match.index ?? 0) + match[0].length;
-    const method = methodFromOptions(source.slice(end, end + 200)) ?? 'GET';
-    endpoints.push(buildCallEndpoint(method, normalized, relFilePath, 'axios'));
-  }
+  const methodFromOptionsArg = (arg: ts.Expression | undefined): string => {
+    if (!arg) return 'GET';
+    const unwrapped = unwrapExpression(arg);
+    return ts.isObjectLiteralExpression(unwrapped)
+      ? (methodFromObjectLiteral(unwrapped) ?? 'GET')
+      : 'GET';
+  };
+
+  const handleCall = (call: ts.CallExpression) => {
+    const callee = call.expression;
+    const arg0 = call.arguments[0];
+    const arg0Unwrapped = arg0 ? unwrapExpression(arg0) : undefined;
+
+    // IDENT.method(...) — axios.get, api.post, client.get, $.ajax, ky.get
+    if (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.name)) {
+      const methodName = callee.name.text.toLowerCase();
+
+      // Config-object form: `$.ajax({url, method})`, `axios.request({url})`.
+      if (
+        CONFIG_OBJECT_METHOD_NAMES.has(methodName) &&
+        arg0Unwrapped &&
+        ts.isObjectLiteralExpression(arg0Unwrapped)
+      ) {
+        record(
+          methodFromObjectLiteral(arg0Unwrapped) ?? 'GET',
+          urlPropFromObjectLiteral(arg0Unwrapped, constants),
+          'HTTP client call',
+        );
+        return;
+      }
+
+      // Verb method: `receiver.get('/x')`. Denylist the receiver chain.
+      if (httpMethodSet.has(methodName.toUpperCase())) {
+        const receiver = leftmostIdentifier(callee.expression);
+        if (receiver && CALL_RECEIVER_DENYLIST.has(receiver)) return;
+        record(methodName.toUpperCase(), resolveArg(arg0), 'HTTP client call');
+      }
+      return;
+    }
+
+    // Bare identifier call — fetch(...), axios(...), ky(...), useSWR(...)
+    if (ts.isIdentifier(callee)) {
+      const name = callee.text;
+
+      if (name === 'fetch') {
+        record(methodFromOptionsArg(call.arguments[1]), resolveArg(arg0), 'fetch');
+        return;
+      }
+
+      if (name === 'axios' || name === 'ky' || name === 'got') {
+        const label = name === 'axios' ? 'axios' : 'HTTP client call';
+        // Config-object form: `axios({ url, method })`.
+        if (arg0Unwrapped && ts.isObjectLiteralExpression(arg0Unwrapped)) {
+          record(
+            methodFromObjectLiteral(arg0Unwrapped) ?? 'GET',
+            urlPropFromObjectLiteral(arg0Unwrapped, constants),
+            label,
+          );
+          return;
+        }
+        record(methodFromOptionsArg(call.arguments[1]), resolveArg(arg0), label);
+        return;
+      }
+
+      if (URL_FIRST_ARG_CALLEES.has(name)) {
+        record('GET', resolveArg(arg0), 'data hook');
+      }
+    }
+  };
+
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) handleCall(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
 
   return endpoints;
 }

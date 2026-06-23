@@ -2,7 +2,6 @@ import {
   AlertTriangle,
   BadgeCheck,
   Boxes,
-  Bug,
   ChevronDown,
   ChevronUp,
   ChevronsLeftRight,
@@ -30,17 +29,14 @@ import {
   Search,
   Server,
   Settings,
-  ShieldCheck,
   SlidersHorizontal,
   Smartphone,
-  SquareStack,
   StopCircle,
   TerminalSquare,
+  ToggleLeft,
   ToggleRight,
   Trash2,
-  WandSparkles,
   X,
-  Zap,
 } from 'lucide-react';
 import {
   useEffect,
@@ -49,13 +45,13 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { seedBranches, seedEndpoints, seedProfiles, seedRepositories } from './data/seed';
+import { seedBranches, seedEndpoints, seedRepositories } from './data/seed';
+import { FilterCombobox } from './components/FilterCombobox';
 import type {
   ChangeLinkResult,
   ChangeProbe,
   DiffStatus,
   EndpointDefinition,
-  MockProfile,
   RepositorySummary,
   ServerLogEntry,
   SidecarStatus,
@@ -68,7 +64,6 @@ const workingTreeRef = '__working_tree__';
 
 const navItems = [
   { label: 'Compare', icon: ChevronsLeftRight },
-  { label: 'Mock Profiles', icon: SquareStack },
   { label: 'Endpoints', icon: Code2 },
   { label: 'Sidecar', icon: Server },
   { label: 'Reports', icon: ClipboardList },
@@ -337,8 +332,11 @@ function App() {
   const [baseBranch, setBaseBranch] = useState('main');
   const [targetBranch, setTargetBranch] = useState('feature/order-flow');
   const [endpoints, setEndpoints] = useState<EndpointDefinition[]>(seedEndpoints);
-  const [profiles, setProfiles] = useState<MockProfile[]>(seedProfiles);
-  const [activeProfileId, setActiveProfileId] = useState(seedProfiles[0].id);
+  // Single live mock set: every detected endpoint is mocked by default. The user's
+  // deviations are the only persisted state — `disabledMockKeys` (turned-off keys)
+  // and `mockEdits` (edited bodies). `mocksEnabled` is the master switch.
+  const [mocksEnabled, setMocksEnabled] = useState(true);
+  const [disabledMockKeys, setDisabledMockKeys] = useState<string[]>([]);
   // Per-endpoint edited mock bodies, keyed `METHOD:path`, reapplied onto freshly
   // scanned endpoints so edits survive a rescan/restart. Persisted to state.json.
   const [mockEdits, setMockEdits] = useState<Record<string, Record<string, unknown>>>({});
@@ -380,9 +378,9 @@ function App() {
       try {
         const saved = await bridge?.loadState?.();
         if (cancelled || !saved) return;
-        if (saved.profiles?.length) setProfiles(saved.profiles);
-        if (saved.activeProfileId) setActiveProfileId(saved.activeProfileId);
         if (saved.mockEdits) setMockEdits(saved.mockEdits);
+        if (saved.disabledMocks) setDisabledMockKeys(saved.disabledMocks);
+        if (typeof saved.mocksEnabled === 'boolean') setMocksEnabled(saved.mocksEnabled);
         if (saved.settings) {
           const s = saved.settings;
           if (typeof s.githubOrg === 'string') setGithubOrg(s.githubOrg);
@@ -408,15 +406,15 @@ function App() {
     if (!stateHydrated || !bridge?.saveState) return;
     const timer = window.setTimeout(() => {
       void bridge.saveState({
-        version: 1,
-        profiles,
-        activeProfileId,
+        version: 2,
         mockEdits,
+        disabledMocks: disabledMockKeys,
+        mocksEnabled,
         settings: { githubOrg, sensitivity, viewport },
       });
     }, 400);
     return () => window.clearTimeout(timer);
-  }, [stateHydrated, profiles, activeProfileId, mockEdits, githubOrg, sensitivity, viewport]);
+  }, [stateHydrated, mockEdits, disabledMockKeys, mocksEnabled, githubOrg, sensitivity, viewport]);
 
   useEffect(() => {
     if (!bridge?.onServerLog) return;
@@ -457,10 +455,23 @@ function App() {
 
   const selectedEndpoint =
     endpoints.find((endpoint) => endpoint.id === selectedEndpointId) ?? endpoints[0];
-  const activeProfile =
-    profiles.find((profile) => profile.id === activeProfileId) ??
-    profiles.find((profile) => profile.enabled) ??
-    profiles[0];
+
+  // The live override map sent to the sidecar/diff: every detected endpoint that the
+  // user hasn't turned off, with its edited body (mockEdits) or generated fallback.
+  const disabledSet = useMemo(() => new Set(disabledMockKeys), [disabledMockKeys]);
+  const effectiveOverrides = useMemo(() => {
+    const overrides: Record<string, Record<string, unknown>> = {};
+    for (const endpoint of endpoints) {
+      const key = `${endpoint.method.toUpperCase()}:${endpoint.path}`;
+      if (disabledSet.has(key)) continue;
+      overrides[key] = mockEdits[key] ?? endpoint.mock;
+    }
+    return overrides;
+  }, [endpoints, disabledSet, mockEdits]);
+  const enabledMockCount = Object.keys(effectiveOverrides).length;
+  const mocksLabel = mocksEnabled
+    ? `${enabledMockCount} of ${endpoints.length} endpoint mocks active`
+    : 'Mocks paused';
 
   async function hydrateRepository(repo: RepositorySummary) {
     setSelectedRepo(repo);
@@ -624,7 +635,7 @@ function App() {
     setDiffReport(null);
     setSelectedReportRouteId(null);
     setMessage(
-      `Comparing ${branchLabel(targetBranch)} against ${branchLabel(baseBranch)} with ${activeProfile.name}.`,
+      `Comparing ${branchLabel(targetBranch)} against ${branchLabel(baseBranch)} with ${mocksLabel.toLowerCase()}.`,
     );
     setBusy('Capturing baseline and target pages');
 
@@ -635,7 +646,7 @@ function App() {
         targetRef: toRunRef(targetBranch),
         viewport,
         mismatchTolerance: sensitivity,
-        endpointOverrides: activeProfile.enabled ? activeProfile.endpointOverrides : undefined,
+        endpointOverrides: mocksEnabled ? effectiveOverrides : undefined,
       });
       setDiffReport(report);
       setReports((prev) => [report, ...prev]);
@@ -664,7 +675,7 @@ function App() {
         const nextStatus = await bridge.launchSidecar({
           repoPath: selectedRepo.path,
           branch: targetBranch === workingTreeRef ? undefined : targetBranch,
-          endpointOverrides: activeProfile.enabled ? activeProfile.endpointOverrides : undefined,
+          endpointOverrides: mocksEnabled ? effectiveOverrides : undefined,
         });
         setSidecar(nextStatus);
         setMessage(`Sidecar running at ${nextStatus.url}.`);
@@ -700,102 +711,35 @@ function App() {
     setMessage('Sidecar stopped.');
   }
 
-  function toggleProfile(profileId: string) {
-    setProfiles((current) => {
-      const next = current.map((profile) =>
-        profile.id === profileId ? { ...profile, enabled: !profile.enabled } : profile,
-      );
-      const activeStillAvailable = next.some(
-        (profile) => profile.id === activeProfileId && profile.enabled,
-      );
-      if (!activeStillAvailable) {
-        setActiveProfileId((next.find((profile) => profile.enabled) ?? next[0]).id);
-      }
-      return next;
-    });
-  }
-
-  // Toggle a single endpoint's mock override on/off for the active profile.
-  // A running sidecar reflects this live: SidecarPanel watches the active
-  // profile's effective overrides and pushes them to the proxy via
-  // `setSidecarOverrides` (bringing a proxy up on the first override), then
-  // reloads the preview. A visual-diff run still reads them at diff time.
-  function toggleEndpointOverride(endpoint: EndpointDefinition, profileId = activeProfileId) {
+  // Flip one endpoint's mock on/off. Mocks are ON by default, so a flip records the
+  // deviation in disabledMockKeys (off) or clears it (on). A running sidecar reflects
+  // this live: SidecarPanel watches `effectiveOverrides` and pushes them to the proxy
+  // via `setSidecarOverrides`, then reloads the preview. A diff run reads them at run
+  // time. New endpoints from a later scan/runtime-discovery are enabled automatically.
+  function toggleMock(endpoint: EndpointDefinition) {
     const key = `${endpoint.method.toUpperCase()}:${endpoint.path}`;
-    let turnedOn = false;
-    setProfiles((current) =>
-      current.map((profile) => {
-        if (profile.id !== profileId) return profile;
-        const next = { ...profile.endpointOverrides };
-        if (next[key]) {
-          delete next[key];
-        } else {
-          next[key] = endpoint.mock;
-          turnedOn = true;
-        }
-        // Turning a mock ON only has runtime effect if the profile is enabled —
-        // the sidecar/diff send overrides solely from the active *enabled* profile.
-        // Auto-enable so the toggle the user just flipped actually applies.
-        return { ...profile, enabled: turnedOn ? true : profile.enabled, endpointOverrides: next };
-      }),
+    setDisabledMockKeys((current) =>
+      current.includes(key) ? current.filter((existing) => existing !== key) : [...current, key],
     );
-    // ...and make it the active profile, so the runtime (which uses only the
-    // active profile) picks up the mock the user just enabled.
-    if (turnedOn && profileId !== activeProfileId) setActiveProfileId(profileId);
   }
 
-  // Edit a mock body. When the profile has an active override for the endpoint,
-  // edit that override; otherwise edit the endpoint's default mock (recorded in
-  // mockEdits so it survives a rescan/restart).
-  function editEndpointMock(
-    endpoint: EndpointDefinition,
-    profileId: string,
-    body: Record<string, unknown>,
-  ) {
+  // Bulk enable/disable every currently-detected endpoint's mock.
+  function setAllMocks(enabled: boolean) {
+    setDisabledMockKeys(
+      enabled
+        ? []
+        : endpoints.map((endpoint) => `${endpoint.method.toUpperCase()}:${endpoint.path}`),
+    );
+  }
+
+  // Edit a mock body. Recorded in mockEdits (survives rescan/restart) and folded into
+  // the live inventory so the editor and effectiveOverrides reflect it immediately.
+  function editEndpointMock(endpoint: EndpointDefinition, body: Record<string, unknown>) {
     const key = `${endpoint.method.toUpperCase()}:${endpoint.path}`;
-    const profile = profiles.find((item) => item.id === profileId);
-    if (profile && profile.endpointOverrides[key]) {
-      setProfiles((current) =>
-        current.map((item) =>
-          item.id === profileId
-            ? { ...item, endpointOverrides: { ...item.endpointOverrides, [key]: body } }
-            : item,
-        ),
-      );
-      return;
-    }
     setEndpoints((current) =>
       current.map((item) => (item.id === endpoint.id ? { ...item, mock: body } : item)),
     );
     setMockEdits((current) => ({ ...current, [key]: body }));
-  }
-
-  function activateProfile(profileId: string) {
-    setActiveProfileId(profileId);
-    setProfiles((current) =>
-      current.map((profile) =>
-        profile.id === profileId ? { ...profile, enabled: true } : profile,
-      ),
-    );
-  }
-
-  function addProfile() {
-    const next: MockProfile = {
-      id: `profile-${Date.now()}`,
-      name: `Mock Profile ${profiles.length + 1}`,
-      description: 'Generated from detected endpoint response shapes',
-      color: profiles.length % 2 === 0 ? 'green' : 'yellow',
-      enabled: false,
-      endpointOverrides: endpoints.reduce<Record<string, Record<string, unknown>>>(
-        (overrides, endpoint) => {
-          overrides[`${endpoint.method.toUpperCase()}:${endpoint.path}`] = endpoint.mock;
-          return overrides;
-        },
-        {},
-      ),
-    };
-    setProfiles((current) => [...current, next]);
-    setMessage(`${next.name} created with ${endpoints.length} endpoint mocks.`);
   }
 
   return (
@@ -912,20 +856,20 @@ function App() {
                 diffStatus={diffStatus}
               />
 
-              <MockProfiles
-                profiles={profiles}
-                endpoints={endpoints}
-                onToggle={toggleProfile}
-                onAdd={addProfile}
-              />
-
-              <EndpointInventory
+              <MockInventory
                 endpoints={filteredEndpoints}
                 total={endpoints.length}
+                enabledCount={enabledMockCount}
                 search={search}
                 setSearch={setSearch}
                 selectedEndpointId={selectedEndpointId}
                 setSelectedEndpointId={setSelectedEndpointId}
+                disabledKeys={disabledSet}
+                mocksEnabled={mocksEnabled}
+                onToggleMocksEnabled={setMocksEnabled}
+                onToggleMock={toggleMock}
+                onSetAll={setAllMocks}
+                onEditMock={editEndpointMock}
               />
             </section>
 
@@ -933,7 +877,7 @@ function App() {
               baseBranch={baseBranch}
               targetBranch={targetBranch}
               diffStatus={diffStatus}
-              profile={activeProfile}
+              mocksLabel={mocksLabel}
               report={diffReport}
               selectedRouteId={selectedReportRouteId}
               setSelectedRouteId={setSelectedReportRouteId}
@@ -945,45 +889,39 @@ function App() {
 
             <SidecarPanel
               sidecar={sidecar}
-              profile={activeProfile}
               selectedEndpoint={selectedEndpoint}
               onLaunch={launchSidecar}
               onStop={stopSidecar}
-              profiles={profiles}
               endpoints={endpoints}
               repoPath={selectedRepo.path}
               baseRef={toRunRef(baseBranch)}
               targetRef={toRunRef(targetBranch)}
-              onToggleProfile={toggleProfile}
-              onActivateProfile={activateProfile}
-              onToggleEndpointOverride={toggleEndpointOverride}
+              mocksEnabled={mocksEnabled}
+              effectiveOverrides={effectiveOverrides}
+              disabledKeys={disabledSet}
+              onToggleMocksEnabled={setMocksEnabled}
+              onToggleMock={toggleMock}
               onSidecarStatus={setSidecar}
-            />
-          </div>
-        )}
-
-        {activeNav === 'Mock Profiles' && (
-          <div className="content-view">
-            <MockProfiles
-              profiles={profiles}
-              endpoints={endpoints}
-              onToggle={toggleProfile}
-              onAdd={addProfile}
-              onToggleEndpointOverride={toggleEndpointOverride}
-              onEditEndpointMock={editEndpointMock}
             />
           </div>
         )}
 
         {activeNav === 'Endpoints' && (
           <div className="content-view">
-            <EndpointInventory
+            <MockInventory
               endpoints={filteredEndpoints}
               total={endpoints.length}
+              enabledCount={enabledMockCount}
               search={search}
               setSearch={setSearch}
               selectedEndpointId={selectedEndpointId}
               setSelectedEndpointId={setSelectedEndpointId}
+              disabledKeys={disabledSet}
+              mocksEnabled={mocksEnabled}
+              onToggleMocksEnabled={setMocksEnabled}
+              onToggleMock={toggleMock}
+              onSetAll={setAllMocks}
+              onEditMock={editEndpointMock}
             />
           </div>
         )}
@@ -992,18 +930,18 @@ function App() {
           <div className="content-view">
             <SidecarPanel
               sidecar={sidecar}
-              profile={activeProfile}
               selectedEndpoint={selectedEndpoint}
               onLaunch={launchSidecar}
               onStop={stopSidecar}
-              profiles={profiles}
               endpoints={endpoints}
               repoPath={selectedRepo.path}
               baseRef={toRunRef(baseBranch)}
               targetRef={toRunRef(targetBranch)}
-              onToggleProfile={toggleProfile}
-              onActivateProfile={activateProfile}
-              onToggleEndpointOverride={toggleEndpointOverride}
+              mocksEnabled={mocksEnabled}
+              effectiveOverrides={effectiveOverrides}
+              disabledKeys={disabledSet}
+              onToggleMocksEnabled={setMocksEnabled}
+              onToggleMock={toggleMock}
               onSidecarStatus={setSidecar}
             />
           </div>
@@ -1072,12 +1010,6 @@ function RepositoryControls({
   diffStatus: DiffStatus;
 }) {
   const visibleRepositories = repositories.filter((repo) => repo.source === sourceMode);
-  const [repoFilter, setRepoFilter] = useState('');
-  // Filter on the repository name only (the segment after the `org/` prefix).
-  const repoQuery = repoFilter.trim().toLowerCase();
-  const filteredRepositories = repoQuery
-    ? visibleRepositories.filter((repo) => repo.name.toLowerCase().includes(repoQuery))
-    : visibleRepositories;
 
   return (
     <div className="panel-section">
@@ -1127,62 +1059,46 @@ function RepositoryControls({
 
       <label className="field-label">
         <span>Repository</span>
-        <input
-          className="repo-filter"
-          value={repoFilter}
+        <FilterCombobox
+          items={visibleRepositories}
+          value={selectedRepo}
+          onValueChange={(repo) => void onSelectRepository(repo)}
+          itemToLabel={(repo) => repo.fullName}
+          itemToKey={(repo) => repo.id}
           placeholder="Filter by name…"
-          onChange={(event) => setRepoFilter(event.target.value)}
+          ariaLabel="Repository"
+          emptyMessage="No repositories match"
+          showClear
+          data-testid="repo-combobox"
         />
-        <div className="select-wrap">
-          <select
-            value={selectedRepo.id}
-            onChange={(event) => {
-              const repo = repositories.find((candidate) => candidate.id === event.target.value);
-              if (repo) void onSelectRepository(repo);
-            }}
-          >
-            {filteredRepositories.length === 0 ? (
-              <option value="" disabled>
-                No repositories match
-              </option>
-            ) : (
-              filteredRepositories.map((repo) => (
-                <option key={repo.id} value={repo.id}>
-                  {repo.fullName}
-                </option>
-              ))
-            )}
-          </select>
-          <ChevronDown size={15} />
-        </div>
       </label>
 
       <div className="branch-grid">
         <label className="field-label">
           <span>Base branch</span>
-          <div className="select-wrap">
-            <select value={baseBranch} onChange={(event) => setBaseBranch(event.target.value)}>
-              {branches.map((branch) => (
-                <option key={branch} value={branch}>
-                  {branchLabel(branch)}
-                </option>
-              ))}
-            </select>
-            <ChevronDown size={15} />
-          </div>
+          <FilterCombobox
+            items={branches}
+            value={baseBranch}
+            onValueChange={setBaseBranch}
+            itemToLabel={branchLabel}
+            placeholder="Filter branches…"
+            ariaLabel="Base branch"
+            emptyMessage="No branches match"
+            data-testid="base-branch-combobox"
+          />
         </label>
         <label className="field-label">
           <span>Target branch</span>
-          <div className="select-wrap">
-            <select value={targetBranch} onChange={(event) => setTargetBranch(event.target.value)}>
-              {branches.map((branch) => (
-                <option key={branch} value={branch}>
-                  {branchLabel(branch)}
-                </option>
-              ))}
-            </select>
-            <ChevronDown size={15} />
-          </div>
+          <FilterCombobox
+            items={branches}
+            value={targetBranch}
+            onValueChange={setTargetBranch}
+            itemToLabel={branchLabel}
+            placeholder="Filter branches…"
+            ariaLabel="Target branch"
+            emptyMessage="No branches match"
+            data-testid="target-branch-combobox"
+          />
         </label>
       </div>
 
@@ -1287,27 +1203,39 @@ function MockBodyEditor({
   );
 }
 
-function MockProfiles({
-  profiles,
+// The single live mock surface: every detected endpoint is mocked by default. Each
+// row toggles its mock on/off (a deviation tracked in disabledKeys) and expands to an
+// editable response body. A master switch pauses the whole set; bulk actions flip all.
+function MockInventory({
   endpoints,
-  onToggle,
-  onAdd,
-  onToggleEndpointOverride,
-  onEditEndpointMock,
+  total,
+  enabledCount,
+  search,
+  setSearch,
+  selectedEndpointId,
+  setSelectedEndpointId,
+  disabledKeys,
+  mocksEnabled,
+  onToggleMocksEnabled,
+  onToggleMock,
+  onSetAll,
+  onEditMock,
 }: {
-  profiles: MockProfile[];
   endpoints: EndpointDefinition[];
-  onToggle: (profileId: string) => void;
-  onAdd: () => void;
-  onToggleEndpointOverride?: (endpoint: EndpointDefinition, profileId: string) => void;
-  onEditEndpointMock?: (
-    endpoint: EndpointDefinition,
-    profileId: string,
-    body: Record<string, unknown>,
-  ) => void;
+  total: number;
+  enabledCount: number;
+  search: string;
+  setSearch: (query: string) => void;
+  selectedEndpointId: string;
+  setSelectedEndpointId: (id: string) => void;
+  disabledKeys: Set<string>;
+  mocksEnabled: boolean;
+  onToggleMocksEnabled: (value: boolean) => void;
+  onToggleMock: (endpoint: EndpointDefinition) => void;
+  onSetAll: (enabled: boolean) => void;
+  onEditMock: (endpoint: EndpointDefinition, body: Record<string, unknown>) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const canExpand = Boolean(onToggleEndpointOverride);
 
   function toggleExpand(id: string) {
     setExpanded((prev) => {
@@ -1319,145 +1247,31 @@ function MockProfiles({
   }
 
   return (
-    <div className="panel-section">
+    <div className={cx('panel-section endpoint-section', !mocksEnabled && 'mocks-paused')}>
       <div className="section-heading inline">
         <div>
-          <h2>Mock Profiles</h2>
-          <p>Valid response data from detected shapes.</p>
+          <h2>Endpoint mocks</h2>
+          <p>
+            {enabledCount} of {total} mocked
+            {mocksEnabled ? '' : ' · paused'}
+          </p>
         </div>
-        <button className="icon-text-button" type="button" onClick={onAdd}>
-          <Plus size={15} />
-          New
+        <Toggle
+          checked={mocksEnabled}
+          onChange={() => onToggleMocksEnabled(!mocksEnabled)}
+          label="Enable all endpoint mocks"
+        />
+      </div>
+
+      <div className="mock-bulk-actions">
+        <button type="button" className="icon-text-button" onClick={() => onSetAll(true)}>
+          <ToggleRight size={14} />
+          Enable all
         </button>
-      </div>
-
-      <div className="profile-list">
-        {profiles.map((profile) => {
-          const isOpen = expanded.has(profile.id);
-          const overrideCount = Object.keys(profile.endpointOverrides).length;
-          return (
-            <div key={profile.id} className="profile-block">
-              <article
-                className={cx(
-                  'profile-row',
-                  `profile-${profile.color}`,
-                  profile.enabled && 'enabled',
-                  canExpand && 'expandable',
-                )}
-              >
-                <div className="profile-icon">
-                  {profile.color === 'red' ? (
-                    <Bug size={16} />
-                  ) : profile.color === 'yellow' ? (
-                    <Zap size={16} />
-                  ) : (
-                    <ShieldCheck size={16} />
-                  )}
-                </div>
-                {canExpand ? (
-                  <button
-                    type="button"
-                    className="profile-meta"
-                    onClick={() => toggleExpand(profile.id)}
-                    aria-expanded={isOpen}
-                  >
-                    <strong>{profile.name}</strong>
-                    <small>
-                      {overrideCount} of {endpoints.length} endpoints mocked
-                    </small>
-                  </button>
-                ) : (
-                  <div>
-                    <strong>{profile.name}</strong>
-                    <small>{profile.description}</small>
-                  </div>
-                )}
-                {canExpand && (
-                  <button
-                    type="button"
-                    className="profile-expand"
-                    onClick={() => toggleExpand(profile.id)}
-                    aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${profile.name} mocks`}
-                  >
-                    {isOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
-                  </button>
-                )}
-                <Toggle
-                  checked={profile.enabled}
-                  onChange={() => onToggle(profile.id)}
-                  label={`Toggle ${profile.name}`}
-                />
-              </article>
-
-              {canExpand && isOpen && (
-                <div className="profile-mocks">
-                  {endpoints.length === 0 && (
-                    <p className="profile-mocks-empty">No endpoints detected yet.</p>
-                  )}
-                  {endpoints.map((endpoint) => {
-                    const key = `${endpoint.method.toUpperCase()}:${endpoint.path}`;
-                    const override = profile.endpointOverrides[key];
-                    const active = Boolean(override);
-                    const body = active ? override : endpoint.mock;
-                    return (
-                      <div key={endpoint.id} className={cx('mock-row', active && 'active')}>
-                        <div className="mock-row-head">
-                          <MethodPill method={endpoint.method} />
-                          <code title={endpoint.path}>{endpoint.path}</code>
-                          <Toggle
-                            checked={active}
-                            onChange={() => onToggleEndpointOverride?.(endpoint, profile.id)}
-                            label={`Toggle mock for ${endpoint.method} ${endpoint.path} in ${profile.name}`}
-                          />
-                        </div>
-                        <MockBodyEditor
-                          body={body ?? {}}
-                          editable={canExpand}
-                          hint={
-                            active
-                              ? 'Editing this profile’s override'
-                              : 'Editing the endpoint default mock'
-                          }
-                          onSave={(next) => onEditEndpointMock?.(endpoint, profile.id, next)}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="mock-summary">
-        <WandSparkles size={16} />
-        <span>{endpoints.length} endpoints can be hydrated into a profile.</span>
-      </div>
-    </div>
-  );
-}
-
-function EndpointInventory({
-  endpoints,
-  total,
-  search,
-  setSearch,
-  selectedEndpointId,
-  setSelectedEndpointId,
-}: {
-  endpoints: EndpointDefinition[];
-  total: number;
-  search: string;
-  setSearch: (query: string) => void;
-  selectedEndpointId: string;
-  setSelectedEndpointId: (id: string) => void;
-}) {
-  return (
-    <div className="panel-section endpoint-section">
-      <div className="section-heading">
-        <h2>Endpoints</h2>
-        <p>{total} endpoints detected</p>
+        <button type="button" className="icon-text-button" onClick={() => onSetAll(false)}>
+          <ToggleLeft size={14} />
+          Disable all
+        </button>
       </div>
 
       <label className="search-box">
@@ -1470,18 +1284,55 @@ function EndpointInventory({
       </label>
 
       <div className="endpoint-list">
-        {endpoints.map((endpoint) => (
-          <button
-            key={endpoint.id}
-            type="button"
-            className={cx('endpoint-row', selectedEndpointId === endpoint.id && 'selected')}
-            onClick={() => setSelectedEndpointId(endpoint.id)}
-          >
-            <MethodPill method={endpoint.method} />
-            <span>{endpoint.path}</span>
-            <small>{endpoint.status}</small>
-          </button>
-        ))}
+        {endpoints.length === 0 && (
+          <p className="profile-mocks-empty">No endpoints detected yet.</p>
+        )}
+        {endpoints.map((endpoint) => {
+          const key = `${endpoint.method.toUpperCase()}:${endpoint.path}`;
+          const on = !disabledKeys.has(key);
+          const isOpen = expanded.has(endpoint.id);
+          return (
+            <div key={endpoint.id} className="mock-row-block">
+              <div
+                className={cx(
+                  'endpoint-row mock-row',
+                  selectedEndpointId === endpoint.id && 'selected',
+                  !on && 'mock-off',
+                )}
+              >
+                <button
+                  type="button"
+                  className="mock-row-main"
+                  onClick={() => {
+                    setSelectedEndpointId(endpoint.id);
+                    toggleExpand(endpoint.id);
+                  }}
+                  aria-expanded={isOpen}
+                >
+                  <MethodPill method={endpoint.method} />
+                  <span className="mock-row-path" title={endpoint.path}>
+                    {endpoint.path}
+                  </span>
+                  <small className="mock-row-framework">{endpoint.framework}</small>
+                  {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </button>
+                <Toggle
+                  checked={on}
+                  onChange={() => onToggleMock(endpoint)}
+                  label={`Mock ${endpoint.method} ${endpoint.path}`}
+                />
+              </div>
+              {isOpen && (
+                <MockBodyEditor
+                  body={endpoint.mock ?? {}}
+                  editable
+                  hint={`${endpoint.method} ${endpoint.path}`}
+                  onSave={(next) => onEditMock(endpoint, next)}
+                />
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -1491,7 +1342,7 @@ function ComparisonWorkspace({
   baseBranch,
   targetBranch,
   diffStatus,
-  profile,
+  mocksLabel,
   report,
   selectedRouteId,
   setSelectedRouteId,
@@ -1503,7 +1354,7 @@ function ComparisonWorkspace({
   baseBranch: string;
   targetBranch: string;
   diffStatus: DiffStatus;
-  profile: MockProfile;
+  mocksLabel: string;
   report: VisualDiffReport | null;
   selectedRouteId: string | null;
   setSelectedRouteId: (id: string) => void;
@@ -1651,7 +1502,7 @@ function ComparisonWorkspace({
             <strong>
               {diffStatus === 'running' ? 'Capturing report' : 'No visual report yet'}
             </strong>
-            <span>{profile.name} will be applied to the next comparison run.</span>
+            <span>{mocksLabel} for the next comparison run.</span>
           </div>
         )}
       </div>
@@ -1803,33 +1654,33 @@ const CHANGE_PROBE_SCRIPT = `(() => {
 
 function SidecarPanel({
   sidecar,
-  profile,
   selectedEndpoint,
   onLaunch,
   onStop,
-  profiles,
   endpoints,
   repoPath,
   baseRef,
   targetRef,
-  onToggleProfile,
-  onActivateProfile,
-  onToggleEndpointOverride,
+  mocksEnabled,
+  effectiveOverrides,
+  disabledKeys,
+  onToggleMocksEnabled,
+  onToggleMock,
   onSidecarStatus,
 }: {
   sidecar: SidecarStatus;
-  profile: MockProfile;
   selectedEndpoint: EndpointDefinition;
   onLaunch: () => Promise<void>;
   onStop: () => Promise<void>;
-  profiles: MockProfile[];
   endpoints: EndpointDefinition[];
   repoPath?: string;
   baseRef: string;
   targetRef: string;
-  onToggleProfile: (profileId: string) => void;
-  onActivateProfile: (profileId: string) => void;
-  onToggleEndpointOverride: (endpoint: EndpointDefinition) => void;
+  mocksEnabled: boolean;
+  effectiveOverrides: Record<string, Record<string, unknown>>;
+  disabledKeys: Set<string>;
+  onToggleMocksEnabled: (value: boolean) => void;
+  onToggleMock: (endpoint: EndpointDefinition) => void;
   onSidecarStatus: (status: SidecarStatus) => void;
 }) {
   const webviewRef = useRef<PreviewWebview | null>(null);
@@ -1974,12 +1825,12 @@ function SidecarPanel({
     return () => window.removeEventListener('keydown', onKey);
   }, [fullscreen]);
 
-  // Effective overrides for the active profile: an enabled profile contributes
-  // its endpoint map; a disabled one contributes nothing (every request passes
-  // through). Mirrors what launchSidecar/runVisualDiff send.
+  // The live override map sent to the proxy: the whole mock set when enabled, or an
+  // empty map (full pass-through) when paused. Mirrors what launchSidecar/runVisualDiff
+  // send.
   const overridesKey = useMemo(
-    () => JSON.stringify(profile.enabled ? profile.endpointOverrides : {}),
-    [profile.enabled, profile.endpointOverrides],
+    () => JSON.stringify(mocksEnabled ? effectiveOverrides : {}),
+    [mocksEnabled, effectiveOverrides],
   );
   // The override map last pushed to (or first observed on) the running sidecar.
   // Null = no running sidecar observed yet; the first observation after a launch
@@ -2006,7 +1857,7 @@ function SidecarPanel({
     if (lastSyncedOverridesRef.current === overridesKey) return;
     lastSyncedOverridesRef.current = overridesKey;
 
-    const nextOverrides = profile.enabled ? profile.endpointOverrides : {};
+    const nextOverrides = mocksEnabled ? effectiveOverrides : {};
     const currentUrl = sidecar.url;
     let cancelled = false;
     void (async () => {
@@ -2026,7 +1877,14 @@ function SidecarPanel({
     return () => {
       cancelled = true;
     };
-  }, [overridesKey, sidecar.running, sidecar.url, profile, onSidecarStatus]);
+  }, [
+    overridesKey,
+    sidecar.running,
+    sidecar.url,
+    mocksEnabled,
+    effectiveOverrides,
+    onSidecarStatus,
+  ]);
 
   // Drag the floating toolbar within the preview area. While dragging we set a
   // `dragging` class so the <webview> gets pointer-events:none — otherwise the
@@ -2224,41 +2082,26 @@ function SidecarPanel({
               </div>
               {!toolbarCollapsed && (
                 <>
-                  <label>
-                    <span>Profile</span>
-                    <select
-                      value={profile.id}
-                      onChange={(event) => onActivateProfile(event.target.value)}
-                    >
-                      {profiles.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {profiles.slice(0, 4).map((item) => (
-                    <div className="toolbar-toggle" key={item.id}>
-                      <span>{item.name.replace('Margherita ', '').replace('Pepperoni ', '')}</span>
-                      <Toggle
-                        checked={item.enabled}
-                        onChange={() => onToggleProfile(item.id)}
-                        label={`Preview ${item.name}`}
-                      />
-                    </div>
-                  ))}
+                  <div className="toolbar-toggle">
+                    <span>Mocks</span>
+                    <Toggle
+                      checked={mocksEnabled}
+                      onChange={() => onToggleMocksEnabled(!mocksEnabled)}
+                      label="Toggle all endpoint mocks"
+                    />
+                  </div>
                   {showEndpoints && (
                     <div className="toolbar-endpoints">
                       {endpoints.map((endpoint) => {
                         const key = `${endpoint.method.toUpperCase()}:${endpoint.path}`;
-                        const on = Boolean(profile.endpointOverrides[key]);
+                        const on = !disabledKeys.has(key);
                         return (
                           <div className="toolbar-endpoint" key={endpoint.id}>
                             <MethodPill method={endpoint.method} />
                             <span className="toolbar-endpoint-path">{endpoint.path}</span>
                             <Toggle
                               checked={on}
-                              onChange={() => onToggleEndpointOverride(endpoint)}
+                              onChange={() => onToggleMock(endpoint)}
                               label={`Mock ${endpoint.method} ${endpoint.path}`}
                             />
                           </div>

@@ -36,15 +36,6 @@ export interface EndpointDefinition {
   mock: Record<string, unknown>;
 }
 
-export interface MockProfile {
-  id: string;
-  name: string;
-  description: string;
-  color: 'red' | 'green' | 'yellow';
-  enabled: boolean;
-  endpointOverrides: Record<string, Record<string, unknown>>;
-}
-
 // User-editable settings persisted to userData/state.json.
 export interface PersistedSettings {
   githubOrg?: string;
@@ -52,14 +43,19 @@ export interface PersistedSettings {
   viewport?: { width: number; height: number };
 }
 
-// Whole persisted UI state. `mockEdits` maps `METHOD:path` → an edited mock body
-// applied onto freshly-scanned endpoints so per-endpoint mock edits survive a
-// rescan/restart.
+// Whole persisted UI state for the single live mock set. Every detected endpoint is
+// mocked by default; the user's deviations are the only things persisted:
+// - `mockEdits` maps `METHOD:path` → an edited mock body, reapplied onto
+//   freshly-scanned endpoints so edits survive a rescan/restart.
+// - `disabledMocks` is the set of `METHOD:path` keys the user turned OFF (default:
+//   everything on, so a later scan/runtime-discovery enables new endpoints
+//   automatically without resurrecting a deliberate disable).
+// - `mocksEnabled` is the master switch for the whole set.
 export interface PersistedState {
   version?: number;
-  profiles?: MockProfile[];
-  activeProfileId?: string;
   mockEdits?: Record<string, Record<string, unknown>>;
+  disabledMocks?: string[];
+  mocksEnabled?: boolean;
   settings?: PersistedSettings;
 }
 
